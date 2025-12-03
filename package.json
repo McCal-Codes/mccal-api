@@ -1,0 +1,23 @@
+{
+  "name": "mccal-api",
+  "version": "1.0.0",
+  "description": "McCal Media API - Portfolio manifests service",
+  "main": "src/api/server.js",
+  "scripts": {
+    "api:start": "node src/api/server.js",
+    "api:dev": "node --watch src/api/server.js"
+  },
+  "keywords": [
+    "mccal",
+    "media",
+    "api",
+    "portfolio",
+    "manifests"
+  ],
+  "author": "McCal Media",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}
