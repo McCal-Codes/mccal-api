@@ -229,6 +229,23 @@ Before deploying, configure Cloudflare Worker Variables and GitHub repo secrets.
 
 This repository does not store secrets in source control. Use the Cloudflare dashboard and GitHub Secrets only.
 
+### Cloudflare Worker Runtime (src/worker.js)
+
+When running in the Cloudflare Workers runtime, the entry point is `src/worker.js` and configuration is provided via Worker Variables:
+
+- `ALLOWED_ORIGINS`: Comma-separated list of allowed origins for CORS.
+- `MANIFEST_BASE_URL`: Base URL where portfolio manifests are hosted (e.g., `https://<username>.github.io/McCals-Website/manifests`).
+- `MANIFEST_TYPES` (optional): Comma-separated list of manifest types (e.g., `concert,events,journalism,nature,portrait,portfolio`). If not provided, a sensible default set is used.
+
+Example `wrangler.toml` vars section:
+
+```toml
+[vars]
+ALLOWED_ORIGINS = "https://mcc-cal.com,https://www.mcc-cal.com,*.squarespace.com,*.sqsp.com,https://api.mcc-cal.com"
+MANIFEST_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/manifests"
+MANIFEST_TYPES = "concert,events,journalism,nature,portrait,portfolio"
+```
+
 ## Caching Strategy
 
 - **Startup**: All manifests are preloaded into Redis cache

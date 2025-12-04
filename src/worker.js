@@ -8,6 +8,8 @@
  *
  * Configuration:
  *   - ALLOWED_ORIGINS: comma-separated list of allowed origins (set via Cloudflare Vars)
+ *   - MANIFEST_BASE_URL: base URL where manifests are hosted (e.g., https://<user>.github.io/McCals-Website/manifests)
+ *   - MANIFEST_TYPES: optional comma-separated list of manifest types
  *   - Optionally integrate with KV/Redis/Upstash in future iterations
  */
 
@@ -68,6 +70,94 @@ function notFound(req) {
   return json({ error: "not_found", message: `No route for ${req.method} ${new URL(req.url).pathname}`, timestamp: new Date().toISOString() }, { status: 404 });
 }
 
+/** Helper: get manifest types from env or default list */
+function getManifestTypes(env) {
+  const raw = env?.MANIFEST_TYPES || "";
+  const parsed = raw
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (parsed.length) return parsed;
+  // Default hardcoded list if env not provided
+  return ["concert", "events", "journalism", "nature", "portrait", "portfolio"];
+}
+
+/** Helper: fetch manifest JSON by type with optional caching */
+async function fetchManifest(type, env) {
+  const base = env?.MANIFEST_BASE_URL;
+  if (!base) {
+    return {
+      ok: false,
+      status: 500,
+      data: { error: "config_error", message: "MANIFEST_BASE_URL is not configured", timestamp: new Date().toISOString() }
+    };
+  }
+  const url = `${base.replace(/\/$/, "")}/${encodeURIComponent(type)}.json`;
+
+  // Edge cache via caches.default
+  const cacheKey = new Request(url, { method: "GET" });
+  const cache = caches.default;
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    try {
+      const data = await cached.json();
+      return { ok: true, status: 200, data, etag: cached.headers.get("ETag") || undefined, fromCache: true };
+    } catch {
+      // Fall through to network fetch if cache parse fails
+    }
+  }
+
+  let resp;
+  try {
+    resp = await fetch(url, { method: "GET" });
+  } catch (err) {
+    return {
+      ok: false,
+      status: 502,
+      data: { error: "upstream_fetch_failed", message: `Failed to fetch manifest: ${err?.message || "network error"}`, timestamp: new Date().toISOString() }
+    };
+  }
+
+  if (resp.status === 404) {
+    return {
+      ok: false,
+      status: 404,
+      data: { error: "manifest_not_found", message: `Manifest not found for type: ${type}`, timestamp: new Date().toISOString() }
+    };
+  }
+
+  if (!resp.ok) {
+    return {
+      ok: false,
+      status: resp.status,
+      data: { error: "upstream_error", message: `Upstream returned ${resp.status}`, timestamp: new Date().toISOString() }
+    };
+  }
+
+  // Clone response for cache put and JSON parsing
+  const forCache = resp.clone();
+  const forJson = resp.clone();
+  let data;
+  try {
+    data = await forJson.json();
+  } catch (err) {
+    return {
+      ok: false,
+      status: 502,
+      data: { error: "bad_json", message: `Invalid JSON: ${err?.message || "parse error"}`, timestamp: new Date().toISOString() }
+    };
+  }
+
+  // Populate cache (best-effort)
+  try {
+    await cache.put(cacheKey, forCache);
+  } catch {
+    // Ignore cache errors
+  }
+
+  return { ok: true, status: 200, data, etag: resp.headers.get("ETag") || undefined, fromCache: false };
+}
+
 /** Router implementation */
 class Router {
   constructor() {
@@ -110,22 +200,22 @@ function buildApiRouter(env) {
     return json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  // Manifests list (static placeholder; integrate with storage later)
-  router.add("GET", "api/v1/manifests", async () => {
-    const types = ["concert", "events", "journalism", "nature", "portrait", "portfolio"];
+  // Manifests list from env or defaults
+  router.add("GET", "api/v1/manifests", async (_req) => {
+    const types = getManifestTypes(env);
     return json({ types });
   });
 
-  // Manifest by type (placeholder response)
+  // Manifest by type fetched from website repo
   router.add("GET", "api/v1/manifests/:type", async (_req, params) => {
     const { type } = params;
-    // Placeholder manifest schema; in future, fetch from KV/Redis or Git submodule files.
-    const manifest = {
-      type,
-      items: [],
-      updatedAt: new Date().toISOString()
-    };
-    return json(manifest, { headers: { ETag: `W/\"${type}-${manifest.updatedAt}\"` } });
+    const result = await fetchManifest(type, env);
+    if (!result.ok) {
+      return json(result.data, { status: result.status });
+    }
+    const headers = {};
+    if (result.etag) headers["ETag"] = result.etag;
+    return json(result.data, { status: 200, headers });
   });
 
   return router;
