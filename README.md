@@ -15,27 +15,54 @@ RESTful API server for serving portfolio data, manifests, and media assets. Desi
 
 ### Prerequisites
 
-- Node.js >= 16.0.0
+- Node.js >= 20.0.0
 - npm or yarn
+- Cloudflare account (for Worker deployment)
 
 ### Installation
 
-Dependencies are already installed at the workspace root. No additional installation needed.
+```bash
+# Install dependencies
+npm install
+```
 
 ### Running the Server
 
+**Express (Node.js) API:**
+
 ```bash
 # Start the server (production mode)
-npm run api:start
+npm run start
 
-# Start with auto-reload (development mode, requires nodemon)
-npm run api:dev
+# Start with auto-reload (development mode)
+npm run dev
 
-# Test if server is running
-npm run api:test
+# Or specify custom port
+API_PORT=3011 NODE_ENV=development npm run dev
 ```
 
-The API will be available at `http://localhost:3001`
+The Express API will be available at `http://localhost:3011` (or your configured `API_PORT`).
+
+**Cloudflare Worker (local dev):**
+
+```bash
+# Local mode (no remote bindings)
+npm run cf:dev
+
+# Remote mode (connects to Cloudflare account for KV/DO/etc.)
+npm run cf:dev:remote
+```
+
+The Worker dev server runs at `http://127.0.0.1:8787`.
+
+**Available npm scripts:**
+
+- `npm run start` – Start Express server (reads `API_PORT`, defaults to 3001)
+- `npm run dev` – Start Express with auto-reload (`--watch`)
+- `npm run cf:dev` – Cloudflare Worker local dev (port 8787, no remote bindings)
+- `npm run cf:dev:remote` – Cloudflare Worker dev with live account bindings
+- `npm run cf:deploy` – Deploy Worker to production (requires auth)
+- `npm run cf:tail` – Stream production Worker logs
 
 ## API Endpoints
 
@@ -217,18 +244,32 @@ Returns cache statistics and memory usage.
 
 ### Environment Variables
 
-Create a `.env` file in the `src/api/` directory (see `.env.example`):
+Create a `.env` file in the API root directory (see `.env.example`):
 
 ```bash
 # Server Configuration
-API_PORT=3001
+API_PORT=3011
 NODE_ENV=development
 
 # CORS Configuration (comma-separated)
-# ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+ALLOWED_ORIGINS=https://mcc-cal.com,https://www.mcc-cal.com,*.squarespace.com
 
-# Cache Configuration
-CACHE_TTL_MINUTES=5
+# Redis (optional, for persistent caching)
+REDIS_URL=redis://localhost:6379
+
+# Secrets (use wrangler secret put for Cloudflare Worker)
+JWT_SECRET=your-secret-here
+WEBHOOK_SECRET=your-webhook-secret
+```
+
+**Note**: Your `server.js` reads `API_PORT` (not `PORT`). Use `API_PORT` when starting the Express API locally.
+
+For Cloudflare Worker, use `wrangler.toml` vars or `wrangler secret put` for sensitive values:
+
+```bash
+# Set secrets for Cloudflare Worker
+npx wrangler secret put JWT_SECRET
+npx wrangler secret put WEBHOOK_SECRET
 ```
 
 ### CORS Configuration
@@ -317,18 +358,49 @@ app.use("/api/v1", v1);
 
 ### Testing
 
+**Express API:**
+
 ```bash
-# Health check
-curl http://localhost:3001/api/health
+# Health check (alias)
+curl http://localhost:3011/api/health
+
+# Health check (versioned)
+curl http://localhost:3011/api/v1/health
 
 # List manifests
-curl http://localhost:3001/api/v1/manifests
+curl http://localhost:3011/api/v1/manifests
 
 # Get specific manifest
-curl http://localhost:3001/api/v1/manifests/concert
+curl http://localhost:3011/api/v1/manifests/concert
 
 # With pretty JSON output
-curl -s http://localhost:3001/api/health | jq
+curl -s http://localhost:3011/api/health | jq
+```
+
+**Cloudflare Worker (dev):**
+
+```bash
+# Health check
+curl http://127.0.0.1:8787/api/v1/health
+
+# List manifests
+curl http://127.0.0.1:8787/api/v1/manifests
+
+# Get specific manifest
+curl http://127.0.0.1:8787/api/v1/manifests/concert
+```
+
+**Production (Cloudflare):**
+
+```bash
+# Health check
+curl https://api.mcc-cal.com/api/v1/health
+
+# List manifests
+curl https://api.mcc-cal.com/api/v1/manifests
+
+# Get specific manifest
+curl https://api.mcc-cal.com/api/v1/manifests/concert
 ```
 
 ## Integration with Widgets
@@ -387,31 +459,61 @@ If the API is down, implement a graceful fallback to static manifests to keep wi
 
 ## Deployment
 
-### Option 1: Serverless Functions (Recommended)
+### Cloudflare Worker (Recommended)
 
-Deploy as serverless functions on:
+Deploy to Cloudflare Workers for global edge distribution:
+
+```bash
+# Login once
+npx wrangler login
+
+# Deploy to production
+npm run cf:deploy
+
+# View logs
+npm run cf:tail
+```
+
+**Setup:**
+
+1. Create a Cloudflare API token (Workers/Pages Deploy scope)
+2. Store as `CLOUDFLARE_API_TOKEN` in GitHub repo secrets
+3. Configure `wrangler.toml` with your account ID and zone name
+4. Bind `api.mcc-cal.com` as a Custom Domain in Cloudflare Dashboard
+5. Deploy via GitHub Actions or manually with `wrangler deploy`
+
+**Secrets:**
+
+```bash
+# Set production secrets
+npx wrangler secret put JWT_SECRET
+npx wrangler secret put WEBHOOK_SECRET
+npx wrangler secret put REDIS_URL
+```
+
+### Express (Docker/VPS)
+
+Use the included Dockerfile or deploy to your preferred Node hosting:
+
+**Option 1: Container Deployment**
+
+- **Railway** - Simple container hosting
+- **Fly.io** - Global edge deployment
+- **Render** - Zero-config Node.js hosting
+
+**Option 2: Traditional VPS**
+
+- Use PM2 for process management
+- Configure nginx as reverse proxy
+- Set up SSL/TLS certificates with Let's Encrypt
+
+**Option 3: Serverless Functions**
 
 - **Netlify Functions** - Easy Squarespace integration
 - **Vercel Serverless** - Zero-config deployment
 - **AWS Lambda** - Scalable, pay-per-use
 
-### Option 2: Container Deployment
-
-Deploy as a containerized app on:
-
-- **Railway** - Simple container hosting
-- **Fly.io** - Global edge deployment
-- **Heroku** - Traditional PaaS
-
-### Option 3: Traditional Hosting
-
-Deploy on VPS or cloud hosting:
-
-- Use PM2 for process management
-- Configure nginx as reverse proxy
-- Set up SSL/TLS certificates
-
-See `docs/deployment/` for detailed deployment guides (coming soon).
+See the parent repo's `docs/integrations/cloudflare-api-setup.md` for detailed Cloudflare routing, CORS config, and CI/CD setup.
 
 ## Roadmap
 
@@ -428,7 +530,7 @@ See `docs/deployment/` for detailed deployment guides (coming soon).
 
 ### Port Already in Use
 
-If port 3001 is already in use:
+If port 3001 (or your configured `API_PORT`) is already in use:
 
 ```bash
 # Find process using port 3001
@@ -438,8 +540,10 @@ lsof -ti:3001
 kill -9 $(lsof -ti:3001)
 
 # Or change the port
-API_PORT=3002 npm run api:start
+API_PORT=3011 npm run start
 ```
+
+**Note**: Your `server.js` reads `API_PORT`, not `PORT`. Set `API_PORT=<port>` when starting the Express API.
 
 ### CORS Errors
 
