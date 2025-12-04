@@ -54,7 +54,7 @@ function corsHeaders(req, env) {
   if (origin && isOriginAllowed(origin, allowed)) {
     headers.set("Access-Control-Allow-Origin", origin);
   }
-  headers.set("Access-Control-Allow-Methods", "GET,OPTIONS");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   return headers;
 }
@@ -259,6 +259,97 @@ async function fetchBlogPosts(env) {
   }
 }
 
+/** Helper: parse authors list from env */
+function parseAuthors(env) {
+  const raw = env?.BLOG_AUTHORS || env?.BLOG_AUTHORS_JSON;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed?.authors)) return parsed.authors;
+    } catch (_) {
+      // fall back to default below
+    }
+  }
+  return [
+    {
+      id: "auth-dev-001",
+      username: "demo",
+      password: "demo-pass",
+      name: "Demo Author"
+    }
+  ];
+}
+
+/** Helper: load blog posts preferring KV cache */
+async function loadBlogPosts(env) {
+  const kv = env?.MCCAL_KV;
+  if (kv) {
+    try {
+      const stored = await kv.get("blog:posts", { type: "json" });
+      if (stored && Array.isArray(stored.posts)) {
+        return { ok: true, status: 200, data: stored, source: "kv" };
+      }
+    } catch (_) {
+      // ignore and fall through to upstream fetch
+    }
+  }
+  const upstream = await fetchBlogPosts(env);
+  if (upstream.ok && kv) {
+    try {
+      await kv.put("blog:posts", JSON.stringify(upstream.data));
+    } catch (_) {
+      // ignore write errors
+    }
+  }
+  return upstream;
+}
+
+/** Helper: persist posts to KV */
+async function persistBlogPosts(env, data) {
+  if (!env?.MCCAL_KV) {
+    throw new Error("kv_not_configured");
+  }
+  await env.MCCAL_KV.put("blog:posts", JSON.stringify(data));
+}
+
+/** Helper: issue session token stored in KV */
+async function issueSessionToken(env, author) {
+  if (!env?.MCCAL_KV) {
+    throw new Error("kv_not_configured");
+  }
+  const token = (typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(""));
+  const payload = {
+    id: author.id,
+    username: author.username,
+    name: author.name,
+    issuedAt: Date.now()
+  };
+  await env.MCCAL_KV.put(`blog:token:${token}`, JSON.stringify(payload), {
+    expirationTtl: 60 * 60 * 24 // 1 day
+  });
+  return { token, payload };
+}
+
+/** Helper: load session from Authorization header */
+async function getSessionFromRequest(req, env) {
+  if (!env?.MCCAL_KV) {
+    return { ok: false, status: 501, data: { error: "kv_not_configured", message: "Blog authoring requires KV storage" } };
+  }
+  const header = req.headers.get("Authorization") || "";
+  const [scheme, value] = header.split(" ");
+  if (scheme !== "Bearer" || !value) {
+    return { ok: false, status: 401, data: { error: "unauthorized", message: "Missing token" } };
+  }
+  const session = await env.MCCAL_KV.get(`blog:token:${value}`, { type: "json" });
+  if (!session) {
+    return { ok: false, status: 401, data: { error: "unauthorized", message: "Invalid token" } };
+  }
+  return { ok: true, status: 200, data: session, token: value };
+}
+
 /** Build API router */
 function buildApiRouter(env) {
   const router = new Router();
@@ -331,7 +422,7 @@ function buildApiRouter(env) {
 
   // Blog posts list
   router.add("GET", "api/v1/blog/posts", async (_req) => {
-    const result = await fetchBlogPosts(env);
+    const result = await loadBlogPosts(env);
     if (!result.ok) {
       return json(result.data, { status: result.status });
     }
@@ -339,6 +430,89 @@ function buildApiRouter(env) {
       "Cache-Control": "public, max-age=3600"
     };
     return json(result.data, { status: 200, headers });
+  });
+
+  // Blog author login
+  router.add("POST", "api/v1/blog/auth/login", async (req) => {
+    if (!env?.MCCAL_KV) {
+      return json(
+        { error: "kv_not_configured", message: "Blog login requires KV storage" },
+        { status: 501 }
+      );
+    }
+    let body;
+    try {
+      body = await req.json();
+    } catch (_) {
+      return json({ error: "invalid_json", message: "Body must be valid JSON" }, { status: 400 });
+    }
+    const username = (body?.username || "").trim();
+    const password = body?.password || "";
+    if (!username || !password) {
+      return json({ error: "bad_request", message: "username and password required" }, { status: 400 });
+    }
+    const authors = parseAuthors(env);
+    const author = authors.find((a) => a.username === username && a.password === password);
+    if (!author) {
+      return json({ error: "unauthorized", message: "Invalid credentials" }, { status: 401 });
+    }
+    const { token, payload } = await issueSessionToken(env, author);
+    return json({ token, author: payload }, { status: 200 });
+  });
+
+  // Blog post creation
+  router.add("POST", "api/v1/blog/posts", async (req) => {
+    if (!env?.MCCAL_KV) {
+      return json(
+        { error: "kv_not_configured", message: "Blog publishing requires KV storage" },
+        { status: 501 }
+      );
+    }
+    const session = await getSessionFromRequest(req, env);
+    if (!session.ok) {
+      return json(session.data, { status: session.status });
+    }
+    let body;
+    try {
+      body = await req.json();
+    } catch (_) {
+      return json({ error: "invalid_json", message: "Body must be valid JSON" }, { status: 400 });
+    }
+    const title = (body?.title || "").trim();
+    const excerpt = (body?.excerpt || "").trim();
+    const content = Array.isArray(body?.content) ? body.content.map((p) => String(p)) : [];
+    const images = Array.isArray(body?.images) ? body.images : [];
+    if (!title || !excerpt || !content.length) {
+      return json(
+        { error: "bad_request", message: "title, excerpt, and content[] required" },
+        { status: 400 }
+      );
+    }
+
+    // Load existing posts (fallback to empty if upstream fails)
+    const current = await loadBlogPosts(env);
+    const data = current.ok && Array.isArray(current.data?.posts) ? current.data : { posts: [] };
+    const now = new Date();
+    const post = {
+      title,
+      author: session.data?.name || session.data?.username || "Author",
+      date: now.toISOString().split("T")[0],
+      excerpt,
+      body: content,
+      ...(images.length
+        ? {
+            images: images.map((img) => ({
+              src: String(img?.src || ""),
+              alt: String(img?.alt || ""),
+              caption: img?.caption ? String(img.caption) : undefined
+            }))
+          }
+        : {})
+    };
+    data.posts = Array.isArray(data.posts) ? data.posts : [];
+    data.posts.unshift(post);
+    await persistBlogPosts(env, data);
+    return json({ success: true, post }, { status: 201 });
   });
 
   return router;
