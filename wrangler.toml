@@ -1,6 +1,9 @@
 name = "mccal-api"
 main = "src/worker.js"
 compatibility_date = "2025-12-03"
+account_id = "2ac16bbf295c2dacf6e2d7c135c8ebdb"
+workers_dev = true
+subdomain = "mccal"
 
 routes = [
   { pattern = "api.mcc-cal.com/*", zone_name = "mcc-cal.com" }
