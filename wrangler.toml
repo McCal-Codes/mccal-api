@@ -6,10 +6,25 @@ routes = [
   { pattern = "api.mcc-cal.com/*", zone_name = "mcc-cal.com" }
 ]
 
+[env.production]
+name = "mccal-api-prod"
+
+[env.staging]
+name = "mccal-api-staging"
+routes = [
+  { pattern = "api-staging.mcc-cal.com/*", zone_name = "mcc-cal.com" }
+]
+
 [vars]
 ALLOWED_ORIGINS = "https://mcc-cal.com,https://*.squarespace.com,https://api.mcc-cal.com"
-MANIFEST_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/manifests"
+MANIFEST_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/src/images/Portfolios"
 MANIFEST_TYPES = "concert,events,journalism,nature,portrait,portfolio"
+BLOG_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/src/images/blog"
+
+[[kv_namespaces]]
+binding = "MCCAL_KV"
+id = "YOUR_KV_NAMESPACE_ID"
+preview_id = "YOUR_KV_PREVIEW_NAMESPACE_ID"
 
 [observability]
 logs = "debug"

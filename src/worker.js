@@ -1,16 +1,18 @@
 /*
  * McCal API - Cloudflare Worker Entry
  * Production-ready minimal API router with CORS and JSON responses.
+ *
  * Routes:
  *   - GET  /api/v1/health
  *   - GET  /api/v1/manifests            (list manifest types)
  *   - GET  /api/v1/manifests/:type      (fetch manifest by type)
+ *   - GET  /api/v1/blog/posts           (list blog posts)
  *
- * Configuration:
- *   - ALLOWED_ORIGINS: comma-separated list of allowed origins (set via Cloudflare Vars)
- *   - MANIFEST_BASE_URL: base URL where manifests are hosted (e.g., https://<user>.github.io/McCals-Website/manifests)
+ * Configuration (set via Cloudflare Vars or env):
+ *   - ALLOWED_ORIGINS: comma-separated list of allowed origins
+ *   - MANIFEST_BASE_URL: where manifests are hosted (GitHub Pages)
  *   - MANIFEST_TYPES: optional comma-separated list of manifest types
- *   - Optionally integrate with KV/Redis/Upstash in future iterations
+ *   - BLOG_BASE_URL: where blog-posts.json is hosted
  */
 
 /** Utility: parse allowed origins from env to array */
@@ -205,6 +207,58 @@ class Router {
   }
 }
 
+/** Helper: fetch blog posts from GitHub */
+async function fetchBlogPosts(env) {
+  const base = env?.BLOG_BASE_URL || "https://McCal-Codes.github.io/McCals-Website/src/images/blog";
+  const url = `${base.replace(/\/$/, "")}/blog-posts.json`;
+
+  // Try cache first
+  const cache = caches.default;
+  const cacheKey = new Request(url, { method: "GET" });
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    try {
+      const data = await cached.json();
+      return { ok: true, status: 200, data, fromCache: true };
+    } catch {
+      // Fall through on parse error
+    }
+  }
+
+  try {
+    const resp = await fetch(url, { method: "GET" });
+
+    if (!resp.ok) {
+      return {
+        ok: false,
+        status: resp.status,
+        data: { error: "fetch_failed", message: `Failed to fetch blog posts: ${resp.status}` }
+      };
+    }
+
+    const forCache = resp.clone();
+    const forJson = resp.clone();
+    const data = await forJson.json();
+
+    // Cache for 1 hour
+    try {
+      const cacheResp = new Response(forCache.body, forCache);
+      cacheResp.headers.set("Cache-Control", "public, max-age=3600");
+      await cache.put(cacheKey, cacheResp);
+    } catch {
+      // Ignore cache errors
+    }
+
+    return { ok: true, status: 200, data, fromCache: false };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 502,
+      data: { error: "upstream_error", message: `Failed to fetch blog posts: ${err?.message || "unknown"}` }
+    };
+  }
+}
+
 /** Build API router */
 function buildApiRouter(env) {
   const router = new Router();
@@ -272,6 +326,18 @@ function buildApiRouter(env) {
       "Cache-Control": "public, max-age=300, stale-while-revalidate=3600"
     };
     if (result.etag) headers["ETag"] = result.etag;
+    return json(result.data, { status: 200, headers });
+  });
+
+  // Blog posts list
+  router.add("GET", "api/v1/blog/posts", async (_req) => {
+    const result = await fetchBlogPosts(env);
+    if (!result.ok) {
+      return json(result.data, { status: result.status });
+    }
+    const headers = {
+      "Cache-Control": "public, max-age=3600"
+    };
     return json(result.data, { status: 200, headers });
   });
 
