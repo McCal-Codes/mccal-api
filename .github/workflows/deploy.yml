@@ -32,4 +32,5 @@ jobs:
           if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ]; then
             echo "Missing Cloudflare credentials. Set secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." && exit 1
           fi
-          npx wrangler deploy --silent
+          # Pass explicit entry and config to avoid auto-detection issues
+          npx wrangler deploy src/worker.js --config wrangler.toml --silent

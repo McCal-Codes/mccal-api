@@ -1,0 +1,9 @@
+{
+  // Fallback JSONC config for Wrangler v4 to ensure entrypoint detection
+  "name": "mccal-api",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-12-03",
+  "routes": [
+    { "pattern": "api.mcc-cal.com/*", "zone_name": "mcc-cal.com" }
+  ]
+}
