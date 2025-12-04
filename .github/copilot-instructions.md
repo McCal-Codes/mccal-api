@@ -15,9 +15,10 @@ All TODO/task files must use standard tags like `TODO`, `FIXME`, `BUG`, etc., an
 ## Repository Overview
 
 **Architecture Role:**
-- **This repo (mccal-api)**: REST API service for dynamic manifest serving, caching, and data endpoints
-- **McCals-Website repo**: Static widgets, Squarespace integration, manifest generation
-- **Integration**: Widgets consume this API for live data; API serves manifests with Redis caching and CORS
+- **This repo (mccal-api)**: REST API service for dynamic manifest serving, caching, and data endpoints. This repo is consumed as a **Git submodule** in the McCals-Website repository.
+- **McCals-Website repo**: Static widgets, Squarespace integration, manifest generation. Mounts this API repo as submodule at `src/api/`.
+- **Integration**: Website repo consumes this API code via submodule; widgets fetch live data from deployed API at `api.mcc-cal.com`
+- **Deployment**: Cloudflare Worker at `api.mcc-cal.com` (CNAME configured), serving API endpoints to Squarespace site at `mcc-cal.com`
 
 **Key Technologies:**
 - Node.js + Express (REST API)
@@ -90,15 +91,20 @@ Server runs on `http://localhost:3001` by default (configurable via `API_PORT` e
 
 ## Manifest Consumption
 
-This API can consume manifests from the website repo via:
-- **Submodule mount**: Website repo at `src/manifests/` (git submodule)
-- **File sync**: Copy manifests from website repo during CI/deployment
-- **Direct file path**: Read from local file system in development
+**Submodule Architecture:**
+- This API repo is a **Git submodule** consumed by the McCals-Website repo
+- Website repo mounts this API at `src/api/` via submodule
+- Website repo generates manifests at `src/images/Portfolios/` and this API reads them
+- When developing locally, this API reads manifests from the parent website repo structure
+- In production (Cloudflare), manifests are bundled or fetched during deployment
 
-Manifest files are typically at paths like:
+**Manifest paths** (relative to website repo root):
 - `src/images/Portfolios/Concert/concert-manifest.json`
 - `src/images/Portfolios/Events/events-manifest.json`
-- Etc.
+- `src/images/Portfolios/Journalism/journalism-manifest.json`
+- `src/images/Portfolios/Nature/nature-manifest.json`
+- `src/images/Portfolios/Portrait/portrait-manifest.json`
+- `src/images/Portfolios/portfolio-manifest.json` (universal rollup)
 
 ## Caching Strategy
 
@@ -110,9 +116,15 @@ Manifest files are typically at paths like:
 ## CORS Configuration
 
 - Allow Squarespace domains (`.squarespace.com`, `.sqsp.com`)
-- Allow production domain (`mccalmedia.com` or custom domain)
+- Allow production domain (`mcc-cal.com` and `*.mcc-cal.com`)
+- Allow API subdomain (`api.mcc-cal.com`)
 - Support preflight (`OPTIONS`) requests
 - Return proper `Access-Control-*` headers
+
+**Domain Setup:**
+- Primary site: `mcc-cal.com` (hosted by Squarespace)
+- API endpoint: `api.mcc-cal.com` (Cloudflare Worker, CNAME configured)
+- Cloudflare manages DNS with CNAME for `api.mcc-cal.com` pointing to Worker
 
 ## API Response Patterns
 
@@ -134,8 +146,9 @@ This API is designed for deployment to Cloudflare Workers or Pages Functions:
 **Deployment steps:**
 1. Install Wrangler CLI: `npm install -g wrangler`
 2. Configure `wrangler.toml` with routes and environment variables
-3. Deploy: `wrangler publish`
-4. Set up DNS at `api.mcc-cal.com` (or custom subdomain)
+3. Deploy: `wrangler deploy` (or `wrangler publish`)
+4. DNS: CNAME `api.mcc-cal.com` → Cloudflare Worker (already configured)
+5. SSL/TLS: Automatic via Cloudflare
 
 **Environment Variables:**
 - `API_PORT`: Local development port (default: 3001)
@@ -192,8 +205,9 @@ Authorization: Bearer <API_KEY>
 ## Recent Updates
 
 - 2025-12-03T00:00:00.000Z — **API Repo Recalibration Complete**
-  - Rewrote copilot instructions to focus on API service role (companion to website repo)
-  - Defined architecture: this API serves manifests to website widgets via REST endpoints
-  - Documented: Redis caching, CORS configuration, Cloudflare deployment strategy
+  - Rewrote copilot instructions to focus on API service role (submodule for website repo)
+  - Clarified submodule architecture: this repo consumed by McCals-Website at `src/api/`
+  - Updated domain details: `mcc-cal.com` (Squarespace), `api.mcc-cal.com` (Cloudflare Worker with CNAME)
+  - Documented: Redis caching, CORS configuration, Cloudflare Worker deployment
   - Integration patterns: how widgets consume API, webhook-based cache invalidation
-  - Next: Clean up docs/ to remove widget authoring guides, audit scripts/ for API utilities only
+  - Cleaned up docs/ (removed widget authoring guides) and scripts/ (archived widget-specific utilities)
