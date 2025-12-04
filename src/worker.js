@@ -209,6 +209,32 @@ function buildApiRouter(env) {
     });
   });
 
+  // Aliases for index under /api and /api/v1
+  router.add("GET", "api", async () => {
+    return json({
+      name: "McCal API",
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      routes: {
+        health: "/api/v1/health",
+        manifests: "/api/v1/manifests",
+        manifestByType: "/api/v1/manifests/:type"
+      }
+    });
+  });
+  router.add("GET", "api/v1", async () => {
+    return json({
+      name: "McCal API",
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      routes: {
+        health: "/api/v1/health",
+        manifests: "/api/v1/manifests",
+        manifestByType: "/api/v1/manifests/:type"
+      }
+    });
+  });
+
   // Health check
   router.add("GET", "api/v1/health", async () => {
     return json({ status: "ok", timestamp: new Date().toISOString() });
@@ -227,7 +253,10 @@ function buildApiRouter(env) {
     if (!result.ok) {
       return json(result.data, { status: result.status });
     }
-    const headers = {};
+    const headers = {
+      // Encourage client caching while allowing quick revalidation
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=3600"
+    };
     if (result.etag) headers["ETag"] = result.etag;
     return json(result.data, { status: 200, headers });
   });

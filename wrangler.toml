@@ -7,7 +7,9 @@ routes = [
 ]
 
 [vars]
-ALLOWED_ORIGINS = ""
+ALLOWED_ORIGINS = "https://mcc-cal.com,https://www.mcc-cal.com,*.squarespace.com,*.sqsp.com,https://api.mcc-cal.com"
+MANIFEST_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/manifests"
+MANIFEST_TYPES = "concert,events,journalism,nature,portrait,portfolio"
 
 [observability]
 logs = "debug"
