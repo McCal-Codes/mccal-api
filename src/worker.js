@@ -195,6 +195,20 @@ class Router {
 function buildApiRouter(env) {
   const router = new Router();
 
+  // Root: provide a minimal index
+  router.add("GET", "", async () => {
+    return json({
+      name: "McCal API",
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      routes: {
+        health: "/api/v1/health",
+        manifests: "/api/v1/manifests",
+        manifestByType: "/api/v1/manifests/:type"
+      }
+    });
+  });
+
   // Health check
   router.add("GET", "api/v1/health", async () => {
     return json({ status: "ok", timestamp: new Date().toISOString() });
