@@ -1,338 +1,475 @@
 # McCal Media API
 
-REST API service for serving dynamic portfolio data to McCal Media's website widgets and Squarespace integration.
+RESTful API server for serving portfolio data, manifests, and media assets. Designed to integrate with the existing static site and Squarespace widgets.
 
-## Overview
+## Features
 
-This API is a **companion service** to the [McCals-Website](https://github.com/McCal-Codes/McCals-Website) repository. It provides REST endpoints to serve portfolio manifests with Redis caching, CORS configuration for Squarespace domains, and is designed for deployment to Cloudflare Workers/Pages.
+- 🚀 Express.js-based REST API
+- 📦 In-memory caching with configurable TTL
+- 🔒 CORS configuration for Squarespace integration
+- 💚 Health check endpoints for monitoring
+- 📊 Manifest serving with cache control
+- 🛡️ Error handling and request logging
 
-**Architecture:**
-- **Website Repo**: Generates manifests, hosts widgets, Squarespace integration
-- **API Repo (this)**: Serves manifests via REST API with caching and optimization
-- **Integration**: Website widgets fetch live data from this API instead of static JSON files
-
-## Key Features
-
-- **REST API**: Versioned endpoints (`/api/v1/`) for manifest retrieval
-- **Redis Caching**: In-memory caching layer with configurable TTLs and cache warming
-- **CORS Support**: Configured for Squarespace domains and production sites
-- **Cloudflare Ready**: Designed for Cloudflare Workers/Pages deployment
-- **Health Checks**: Built-in health and monitoring endpoints
-- **Webhook Support**: Cache invalidation via webhooks from website repo CI
-
-## Technology Stack
-
-- **Runtime**: Node.js 18+
-- **Framework**: Express.js
-- **Caching**: Redis (via redis-client)
-- **Deployment**: Cloudflare Workers or Pages Functions
-- **Versioning**: API versioning at `/api/v1/`
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 18.x or higher
-- Redis instance (local or Upstash for Cloudflare)
-- Optional: Cloudflare account for production deployment
+- Node.js >= 16.0.0
+- npm or yarn
 
 ### Installation
 
-```bash
-npm install
-```
-
-### Environment Variables
-
-Create a `.env` file (see `.env.example`):
-
-```bash
-# Server configuration
-API_PORT=3001
-NODE_ENV=development
-
-# Redis configuration
-REDIS_URL=redis://localhost:6379
-
-# Optional: API security
-API_KEY=your-secret-api-key-here
-```
+Dependencies are already installed at the workspace root. No additional installation needed.
 
 ### Running the Server
 
-**Development mode (with auto-reload):**
 ```bash
-npm run api:dev
-```
-
-**Production mode:**
-```bash
+# Start the server (production mode)
 npm run api:start
+
+# Start with auto-reload (development mode, requires nodemon)
+npm run api:dev
+
+# Test if server is running
+npm run api:test
 ```
 
-The server runs on `http://localhost:3001` by default.
+The API will be available at `http://localhost:3001`
 
 ## API Endpoints
 
-### Health Check
+### Root
 
-**Endpoint:** `GET /api/health` or `GET /api/v1/health`
-
-Returns server health status.
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "redis": "connected"
-}
+```
+GET /
 ```
 
-### List All Manifest Types
-
-**Endpoint:** `GET /api/v1/manifests`
-
-Returns available manifest types and metadata.
+Returns API information and available endpoints.
 
 **Response:**
+
 ```json
 {
-  "manifests": ["concert", "events", "journalism", "nature", "portrait", "universal"],
-  "count": 6
-}
-```
-
-### Get Specific Manifest
-
-**Endpoint:** `GET /api/v1/manifests/:type`
-
-Returns a specific portfolio manifest (e.g., `concert`, `events`, `journalism`).
-
-**Response (200):**
-```json
-{
-  "type": "concert",
+  "name": "McCal Media API",
   "version": "1.0.0",
-  "bands": [
-    {
-      "name": "Band Name",
-      "performances": [...]
+  "status": "running",
+  "endpoints": {
+    "health": "/api/health",
+    "v1": {
+      "health": "/api/v1/health",
+      "manifests": "/api/v1/manifests"
     }
-  ],
-  "totalImages": 150,
-  "lastUpdated": "2024-01-01T00:00:00.000Z"
-}
-```
-
-**Response (404):**
-```json
-{
-  "error": "Manifest not found",
-  "message": "No manifest found for type: xyz",
-  "timestamp": "2024-01-01T00:00:00.000Z"
-}
-```
-
-### Cache Invalidation Webhook
-
-**Endpoint:** `POST /api/v1/webhooks/invalidate-cache`
-
-Invalidates cache for a specific manifest type (requires API key).
-
-**Headers:**
-```
-Authorization: Bearer <API_KEY>
-Content-Type: application/json
-```
-
-**Request Body:**
-```json
-{
-  "manifestType": "concert"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Cache invalidated for concert",
-  "timestamp": "2024-01-01T00:00:00.000Z"
-}
-```
-
-## Integration with Website Widgets
-
-Widgets in the McCals-Website repo can consume this API:
-
-```javascript
-// Example: Concert Portfolio Widget
-const API_BASE = 'https://api.mcc-cal.com/api/v1';
-
-async function loadManifest() {
-  try {
-    const response = await fetch(`${API_BASE}/manifests/concert`);
-    if (!response.ok) throw new Error('Failed to fetch manifest');
-    
-    const data = await response.json();
-    // Use data.bands, data.totalImages, etc.
-    renderPortfolio(data);
-  } catch (error) {
-    console.error('Manifest load failed:', error);
-    // Fallback to static manifest or show error
   }
 }
 ```
 
-## Deployment to Cloudflare
+### Health Checks
 
-This API is optimized for Cloudflare Workers or Pages Functions:
-
-1. **Install Wrangler CLI:**
-   ```bash
-   npm install -g wrangler
-   ```
-
-2. **Configure `wrangler.toml`:**
-   ```toml
-   name = "mccal-api"
-   main = "src/api/server.js"
-   compatibility_date = "2024-01-01"
-   
-   [env.production]
-   route = "api.mcc-cal.com/*"
-   
-   [[env.production.vars]]
-   NODE_ENV = "production"
-   ```
-
-3. **Deploy:**
-   ```bash
-   wrangler publish
-   ```
-
-4. **Set up secrets:**
-   ```bash
-   wrangler secret put REDIS_URL
-   wrangler secret put API_KEY
-   ```
-
-See `docs/deployment/API-DEPLOYMENT-GUIDE.md` for detailed instructions.
-
-Secrets & Variables
--------------------
-
-Before deploying, configure Cloudflare Worker Variables and GitHub repo secrets. Refer to:
-
-- `docs/deployment/SECRETS-SETUP.md` — step-by-step guide to set `ALLOWED_ORIGINS` (Worker Variable) and CI secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
-
-This repository does not store secrets in source control. Use the Cloudflare dashboard and GitHub Secrets only.
-
-### Cloudflare Worker Runtime (src/worker.js)
-
-When running in the Cloudflare Workers runtime, the entry point is `src/worker.js` and configuration is provided via Worker Variables:
-
-- `ALLOWED_ORIGINS`: Comma-separated list of allowed origins for CORS.
-- `MANIFEST_BASE_URL`: Base URL where portfolio manifests are hosted (e.g., `https://<username>.github.io/McCals-Website/manifests`).
-- `MANIFEST_TYPES` (optional): Comma-separated list of manifest types (e.g., `concert,events,journalism,nature,portrait,portfolio`). If not provided, a sensible default set is used.
- - `LOG_LEVEL` (optional): Control logging verbosity in future enhancements.
-
-Example `wrangler.toml` vars section:
-
-```toml
-[vars]
-ALLOWED_ORIGINS = "https://mcc-cal.com,https://www.mcc-cal.com,*.squarespace.com,*.sqsp.com,https://api.mcc-cal.com"
-MANIFEST_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/manifests"
-MANIFEST_TYPES = "concert,events,journalism,nature,portrait,portfolio"
-```
-
-### Response headers and caching
-
-- `ETag`: Forwarded from upstream when available; otherwise a weak ETag is generated from the manifest content to improve client caching.
-- `Cache-Control`: Manifests include `public, max-age=300, stale-while-revalidate=3600` to keep responses fast while allowing background revalidation.
-- `X-Request-Id`: Added to every response to aid troubleshooting and log correlation.
-
-## Caching Strategy
-
-- **Startup**: All manifests are preloaded into Redis cache
-- **TTL**: Configurable per manifest type (default: 1 hour for dynamic content, 24 hours for static)
-- **Invalidation**: Webhook endpoint allows website repo CI to invalidate cache after manifest updates
-- **Fallback**: If Redis is unavailable, API serves directly from file system with warning logs
-
-## Project Structure
+#### Basic Health Check
 
 ```
-mccal-api/
-├── src/api/
-│   ├── server.js              # Express app entry point
-│   ├── routes/                # Route handlers
-│   │   ├── health.js          # Health check endpoint
-│   │   ├── manifests.js       # Manifest CRUD
-│   │   ├── blog.js            # Blog/RSS endpoints
-│   │   ├── webhooks.js        # Webhook handlers
-│   │   └── admin.js           # Admin endpoints
-│   ├── versions/v1/           # API v1 router
-│   ├── config/                # Configuration
-│   │   └── manifests.js       # Manifest type definitions
-│   ├── cache/                 # Redis caching
-│   │   └── redis-client.js
-│   └── proxy-middleware.js    # Proxy utilities
-├── scripts/
-│   ├── utils/                 # Utilities (cache warming, health checks)
-│   ├── admin/                 # Admin scripts (deployment, monitoring)
-│   └── manifest/              # Manifest sync utilities
-├── docs/
-│   ├── deployment/            # Cloudflare deployment guides
-│   ├── integrations/          # Widget integration patterns
-│   └── standards/             # API conventions, security
-├── package.json
-└── README.md
+GET /api/health
 ```
+
+Returns server health status and basic metrics.
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-11-21T18:00:00.000Z",
+  "uptime": 123.456,
+  "memory": {
+    "used": 7,
+    "total": 9,
+    "unit": "MB"
+  }
+}
+```
+
+#### Detailed Health Check
+
+```
+GET /api/health/detailed
+```
+
+Returns comprehensive health status including dependency checks.
+
+#### Readiness Probe
+
+```
+GET /api/health/ready
+```
+
+For Kubernetes/container orchestration readiness checks.
+
+#### Liveness Probe
+
+```
+GET /api/health/live
+```
+
+For Kubernetes/container orchestration liveness checks.
+
+### Manifests
+
+#### List All Manifests
+
+```
+GET /api/v1/manifests
+```
+
+Returns a list of all available manifest types.
+
+**Response:**
+
+```json
+{
+  "manifests": [
+    {
+      "type": "concert",
+      "endpoint": "/api/v1/manifests/concert"
+    },
+    {
+      "type": "events",
+      "endpoint": "/api/v1/manifests/events"
+    }
+    // ... more manifests
+  ],
+  "total": 7,
+  "cacheStatus": {
+    "cached": 3,
+    "ttl": "5 minutes"
+  }
+}
+```
+
+#### Get Specific Manifest
+
+```
+GET /api/v1/manifests/:type
+```
+
+Returns manifest data for a specific portfolio type.
+
+**Available Types:**
+
+- `concert` - Concert photography portfolio
+- `events` - Events photography portfolio
+- `journalism` - Photojournalism portfolio
+- `nature` - Nature photography portfolio
+- `portrait` - Portrait photography portfolio
+- `featured` - Featured work portfolio
+- `universal` - Universal/combined portfolio
+
+**Response:**
+
+```json
+{
+  "type": "concert",
+  "data": {
+    "bands": [...],
+    "totalBands": 16,
+    "generated": "2025-11-21T18:00:00.000Z",
+    "version": "2.0"
+  },
+  "meta": {
+    "timestamp": "2025-11-21T18:00:00.000Z",
+    "cached": false
+  }
+}
+```
+
+**Response Headers:**
+
+- `X-Cache: HIT` - Data served from cache
+- `X-Cache: MISS` - Data read from filesystem
+
+#### Clear Manifest Cache
+
+```
+POST /api/v1/manifests/cache/clear
+```
+
+Clears the in-memory manifest cache. Useful during development.
+
+**Response:**
+
+```json
+{
+  "message": "Cache cleared successfully",
+  "clearedCount": 3,
+  "timestamp": "2025-11-21T18:00:00.000Z"
+}
+```
+
+#### Get Cache Statistics
+
+```
+GET /api/v1/manifests/cache/stats
+```
+
+Returns cache statistics and memory usage.
+
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file in the `src/api/` directory (see `.env.example`):
+
+```bash
+# Server Configuration
+API_PORT=3001
+NODE_ENV=development
+
+# CORS Configuration (comma-separated)
+# ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+
+# Cache Configuration
+CACHE_TTL_MINUTES=5
+```
+
+### CORS Configuration
+
+By default, the API allows requests from:
+
+- `localhost:3000` and `localhost:3001` (local development)
+- `*.squarespace.com` (Squarespace preview)
+- `*.sqsp.com` (Squarespace CDN)
+- Custom domains matching `/mccalmedia\.com$/`
+
+To add more origins, modify the `corsOptions` in `server.js`.
+
+## Caching
+
+The API implements in-memory caching for manifest data:
+
+- **Default TTL:** 5 minutes
+- **Cache Strategy:** LRU (Least Recently Used)
+- **Cache Key:** Manifest type (concert, events, etc.)
+
+Cache can be cleared manually via the `/api/v1/manifests/cache/clear` endpoint.
+
+## Error Handling
+
+All errors return a consistent JSON format:
+
+```json
+{
+  "error": "Error Type",
+  "message": "Detailed error message",
+  "timestamp": "2025-11-21T18:00:00.000Z"
+}
+```
+
+Common status codes:
+
+- `200` - Success
+- `404` - Resource not found
+- `403` - CORS error
+- `500` - Internal server error
 
 ## Development
 
-### Adding New Endpoints
+### Project Structure
 
-1. Create route handler in `src/api/routes/` or extend existing file
-2. Import and mount in `src/api/versions/v1/index.js`
-3. Update CORS origins in `src/api/server.js` if needed
-4. Document in `docs/integrations/api-integration-guide.md`
-5. Update this README's API Endpoints section
+```
+src/api/
+├── server.js                # Main server entry point
+├── routes/
+│   ├── health.js           # Health check endpoints (non-versioned alias)
+│   └── manifests.js        # Manifest endpoints
+├── versions/
+│   └── v1/
+│       ├── index.js        # v1 router aggregator (/api/v1/*)
+│       └── health.js       # v1 health routes (/api/v1/health)
+├── .env.example            # Environment variables template
+├── .gitignore              # Git ignore rules
+└── README.md               # This file
+```
+
+### Adding New Routes
+
+1. Create a new route file in `routes/`:
+
+```javascript
+// routes/myroute.js
+const express = require("express");
+const router = express.Router();
+
+router.get("/", (req, res) => {
+  res.json({ message: "Hello!" });
+});
+
+module.exports = router;
+```
+
+2. Import and use in `server.js`:
+
+```javascript
+const myRoute = require("./routes/myroute");
+const v1 = require("./versions/v1");
+v1.use("/myroute", myRoute);
+app.use("/api/v1", v1);
+```
 
 ### Testing
 
 ```bash
-# Start server
-npm run api:dev
-
-# Test health endpoint
+# Health check
 curl http://localhost:3001/api/health
 
-# Test manifest endpoint
+# List manifests
+curl http://localhost:3001/api/v1/manifests
+
+# Get specific manifest
 curl http://localhost:3001/api/v1/manifests/concert
+
+# With pretty JSON output
+curl -s http://localhost:3001/api/health | jq
 ```
 
-## CORS Configuration
+## Integration with Widgets
 
-The API is configured to allow requests from:
-- Local development (`localhost:3000`, `localhost:3001`)
-- Squarespace domains (`*.squarespace.com`, `*.sqsp.com`)
-- Production domain (`mccalmedia.com` and subdomains)
+To consume the API from widgets:
 
-CORS headers include:
-- `Access-Control-Allow-Origin`
-- `Access-Control-Allow-Methods`: GET, POST, PUT, DELETE, OPTIONS
-- `Access-Control-Allow-Headers`: Content-Type, Authorization, X-API-Key
+```javascript
+// Fetch manifest data
+async function loadPortfolio() {
+  try {
+    const response = await fetch(
+      "http://localhost:3001/api/v1/manifests/concert"
+    );
+    const { data } = await response.json();
 
-## Contributing
+    // Use the data
+    console.log("Bands:", data.bands);
+  } catch (error) {
+    console.error("Failed to load portfolio:", error);
+    // Fallback to static manifest
+  }
+}
+```
 
-See the [McCals-Website](https://github.com/McCal-Codes/McCals-Website) repository for overall project documentation and contribution guidelines.
+### Supported Widgets
+
+The following widgets support optional API loading via `data-api="on"`:
+
+- **Concert Portfolio v4.7.1** - `/api/v1/manifests/concert`
+  - File: `src/widgets/concert-portfolio/versions/v4.7.1-api-optional.html`
+  - Data shape: `response.data.bands[]`
+
+For implementation details and patterns to add API support to other widgets, see:
+
+- `docs/integrations/api-integration-guide.md`
+
+## Frontend integration in local development (proxy)
+
+During local development, you can avoid CORS and use same-origin calls via the dev server proxy:
+
+```bash
+# Start site + API together with proxy enabled
+npm run dev:with-api
+```
+
+- The site runs at http://localhost:3000 and proxies /api/\* to http://localhost:3001
+- In the browser, call relative endpoints like `/api/v1/manifests/concert`
+- Example (inside client code):
+
+```javascript
+const res = await fetch("/api/v1/manifests/concert");
+const { data } = await res.json();
+```
+
+If the API is down, implement a graceful fallback to static manifests to keep widgets functional.
+
+## Deployment
+
+### Option 1: Serverless Functions (Recommended)
+
+Deploy as serverless functions on:
+
+- **Netlify Functions** - Easy Squarespace integration
+- **Vercel Serverless** - Zero-config deployment
+- **AWS Lambda** - Scalable, pay-per-use
+
+### Option 2: Container Deployment
+
+Deploy as a containerized app on:
+
+- **Railway** - Simple container hosting
+- **Fly.io** - Global edge deployment
+- **Heroku** - Traditional PaaS
+
+### Option 3: Traditional Hosting
+
+Deploy on VPS or cloud hosting:
+
+- Use PM2 for process management
+- Configure nginx as reverse proxy
+- Set up SSL/TLS certificates
+
+See `docs/deployment/` for detailed deployment guides (coming soon).
+
+## Roadmap
+
+- [ ] Authentication & API keys
+- [ ] Rate limiting per client
+- [ ] Database integration (PostgreSQL/MongoDB)
+- [ ] Image optimization endpoints
+- [ ] GraphQL interface
+- [ ] WebSocket support for real-time updates
+- [ ] OpenAPI/Swagger documentation
+- [ ] Performance metrics & monitoring
+
+## Troubleshooting
+
+### Port Already in Use
+
+If port 3001 is already in use:
+
+```bash
+# Find process using port 3001
+lsof -ti:3001
+
+# Kill the process
+kill -9 $(lsof -ti:3001)
+
+# Or change the port
+API_PORT=3002 npm run api:start
+```
+
+### CORS Errors
+
+If you see CORS errors in the browser console:
+
+1. Check that the origin is allowed in `corsOptions` (server.js)
+2. Ensure credentials are properly configured
+3. In development, all origins are allowed by default
+
+### Manifest Not Found
+
+If manifests return 404:
+
+```bash
+# Generate all manifests
+npm run manifest:generate
+
+# Verify manifest files exist
+ls -la src/images/Portfolios/Concert/concert-manifest.json
+```
 
 ## License
 
-MIT License - see the [LICENSE](LICENSE) file for details.
+MIT - See LICENSE file in repository root
 
-## Related Repositories
+## Support
 
-- [McCals-Website](https://github.com/McCal-Codes/McCals-Website) — Main website repo with widgets and manifest generators
+For issues, questions, or contributions, please refer to the main repository documentation.
+
+---
+
+**Version:** 1.0.0  
+**Last Updated:** 2025-11-21
