@@ -236,6 +236,7 @@ When running in the Cloudflare Workers runtime, the entry point is `src/worker.j
 - `ALLOWED_ORIGINS`: Comma-separated list of allowed origins for CORS.
 - `MANIFEST_BASE_URL`: Base URL where portfolio manifests are hosted (e.g., `https://<username>.github.io/McCals-Website/manifests`).
 - `MANIFEST_TYPES` (optional): Comma-separated list of manifest types (e.g., `concert,events,journalism,nature,portrait,portfolio`). If not provided, a sensible default set is used.
+ - `LOG_LEVEL` (optional): Control logging verbosity in future enhancements.
 
 Example `wrangler.toml` vars section:
 
@@ -245,6 +246,12 @@ ALLOWED_ORIGINS = "https://mcc-cal.com,https://www.mcc-cal.com,*.squarespace.com
 MANIFEST_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/manifests"
 MANIFEST_TYPES = "concert,events,journalism,nature,portrait,portfolio"
 ```
+
+### Response headers and caching
+
+- `ETag`: Forwarded from upstream when available; otherwise a weak ETag is generated from the manifest content to improve client caching.
+- `Cache-Control`: Manifests include `public, max-age=300, stale-while-revalidate=3600` to keep responses fast while allowing background revalidation.
+- `X-Request-Id`: Added to every response to aid troubleshooting and log correlation.
 
 ## Caching Strategy
 

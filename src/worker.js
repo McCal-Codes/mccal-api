@@ -155,7 +155,21 @@ async function fetchManifest(type, env) {
     // Ignore cache errors
   }
 
-  return { ok: true, status: 200, data, etag: resp.headers.get("ETag") || undefined, fromCache: false };
+  // Weak ETag fallback if upstream didn't provide one
+  let etag = resp.headers.get("ETag") || undefined;
+  if (!etag) {
+    try {
+      const str = JSON.stringify(data);
+      const enc = new TextEncoder().encode(str);
+      const hashBuf = await crypto.subtle.digest("SHA-1", enc);
+      const hashArr = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+      etag = `W/"${type}-${hashArr}"`;
+    } catch {
+      // If hashing fails, leave etag undefined
+    }
+  }
+
+  return { ok: true, status: 200, data, etag, fromCache: false };
 }
 
 /** Router implementation */
@@ -266,9 +280,19 @@ function buildApiRouter(env) {
 
 export default {
   async fetch(req, env, ctx) {
+    // Generate request id for observability
+    let reqId = "";
+    try {
+      const rand = new Uint8Array(12);
+      crypto.getRandomValues(rand);
+      reqId = Array.from(rand).map(b => b.toString(16).padStart(2, "0")).join("");
+    } catch {
+      reqId = Math.random().toString(36).slice(2);
+    }
     // Handle CORS preflight
     if (req.method === "OPTIONS") {
       const headers = corsHeaders(req, env);
+      headers.set("X-Request-Id", reqId);
       return new Response(null, { status: 204, headers });
     }
 
@@ -282,17 +306,20 @@ export default {
         // Merge CORS headers into response
         const outHeaders = new Headers(res.headers);
         for (const [k, v] of headers) outHeaders.set(k, v);
+        outHeaders.set("X-Request-Id", reqId);
         return new Response(res.body, { status: res.status || 200, headers: outHeaders });
       }
       const nf = notFound(req);
       const outHeaders = new Headers(nf.headers);
       for (const [k, v] of headers) outHeaders.set(k, v);
+      outHeaders.set("X-Request-Id", reqId);
       return new Response(nf.body, { status: 404, headers: outHeaders });
     } catch (err) {
       const body = { error: "internal_error", message: (err && err.message) || "Unknown error", timestamp: new Date().toISOString() };
       const res = json(body, { status: 500 });
       const outHeaders = new Headers(res.headers);
       for (const [k, v] of headers) outHeaders.set(k, v);
+      outHeaders.set("X-Request-Id", reqId);
       return new Response(res.body, { status: 500, headers: outHeaders });
     }
   }

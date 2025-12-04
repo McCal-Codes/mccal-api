@@ -1,0 +1,36 @@
+name: API Smoke Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */12 * * *" # every 12 hours
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check root index
+        run: |
+          set -e
+          curl -sS -i https://api.mcc-cal.com/ | awk 'NR==1{print}' | grep -E 'HTTP/.* 200'
+      - name: Check /api index alias
+        run: |
+          set -e
+          curl -sS -i https://api.mcc-cal.com/api | awk 'NR==1{print}' | grep -E 'HTTP/.* 200'
+      - name: Check health
+        run: |
+          set -e
+          curl -sS -i https://api.mcc-cal.com/api/v1/health | awk 'NR==1{print}' | grep -E 'HTTP/.* 200'
+      - name: List manifest types
+        run: |
+          set -e
+          curl -sS -i https://api.mcc-cal.com/api/v1/manifests | awk 'NR==1{print}' | grep -E 'HTTP/.* 200'
+      - name: Fetch concert manifest
+        run: |
+          set -e
+          curl -sS -i https://api.mcc-cal.com/api/v1/manifests/concert | awk 'NR==1{print}' | grep -E 'HTTP/.* 200|HTTP/.* 304'
+      - name: Validate JSON shape quickly
+        run: |
+          set -e
+          body=$(curl -sS https://api.mcc-cal.com/api/v1/manifests/concert)
+          echo "$body" | jq -e '.type and (.items or .bands or .data)' >/dev/null || (echo "Unexpected JSON shape"; exit 1)
