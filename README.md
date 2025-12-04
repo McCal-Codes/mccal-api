@@ -220,6 +220,15 @@ This API is optimized for Cloudflare Workers or Pages Functions:
 
 See `docs/deployment/API-DEPLOYMENT-GUIDE.md` for detailed instructions.
 
+Secrets & Variables
+-------------------
+
+Before deploying, configure Cloudflare Worker Variables and GitHub repo secrets. Refer to:
+
+- `docs/deployment/SECRETS-SETUP.md` — step-by-step guide to set `ALLOWED_ORIGINS` (Worker Variable) and CI secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
+
+This repository does not store secrets in source control. Use the Cloudflare dashboard and GitHub Secrets only.
+
 ## Caching Strategy
 
 - **Startup**: All manifests are preloaded into Redis cache

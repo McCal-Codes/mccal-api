@@ -1,0 +1,13 @@
+name = "mccal-api"
+main = "src/worker.js"
+compatibility_date = "2025-12-03"
+
+routes = [
+  { pattern = "api.mcc-cal.com/*", zone_name = "mcc-cal.com" }
+]
+
+[vars]
+ALLOWED_ORIGINS = ""
+
+[observability]
+logs = "debug"
