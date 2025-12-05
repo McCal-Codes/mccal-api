@@ -7,13 +7,45 @@
  *   - GET  /api/v1/manifests            (list manifest types)
  *   - GET  /api/v1/manifests/:type      (fetch manifest by type)
  *   - GET  /api/v1/blog/posts           (list blog posts)
+ *   - POST /api/v1/webhooks/purge       (purge manifest cache - requires secret)
+ *   - POST /api/v1/webhooks/warm        (pre-warm manifest cache - requires secret)
+ *   - GET  /api/v1/cache/stats          (cache hit/miss stats)
  *
  * Configuration (set via Cloudflare Vars or env):
  *   - ALLOWED_ORIGINS: comma-separated list of allowed origins
  *   - MANIFEST_BASE_URL: where manifests are hosted (GitHub Pages)
  *   - MANIFEST_TYPES: optional comma-separated list of manifest types
  *   - BLOG_BASE_URL: where blog-posts.json is hosted
+ *   - WEBHOOK_SECRET: secret for webhook authentication
+ *   - RATE_LIMIT_REQUESTS: max requests per window (default 100)
+ *   - RATE_LIMIT_WINDOW_MS: rate limit window in ms (default 60000)
+ *   - CACHE_TTL_SECONDS: cache TTL in seconds (default 600 = 10 min)
  */
+
+/** Cache configuration */
+const CACHE_CONFIG = {
+  // Default 10 minute TTL for manifests (5-15 min range as specified)
+  manifestTtlSeconds: 600,
+  // Stale-while-revalidate window (1 hour)
+  staleWhileRevalidateSeconds: 3600,
+  // Widget HTML TTL (5 minutes, more frequently updated)
+  widgetTtlSeconds: 300,
+};
+
+/** Rate limiting configuration */
+const RATE_LIMIT_CONFIG = {
+  maxRequests: 100,
+  windowMs: 60000, // 1 minute
+};
+
+/** Global cache stats (in-memory, per-isolate) */
+const cacheStats = {
+  hits: 0,
+  misses: 0,
+  purges: 0,
+  warms: 0,
+  lastReset: Date.now(),
+};
 
 /** Utility: parse allowed origins from env to array */
 function parseAllowedOrigins(env) {
@@ -50,13 +82,67 @@ function corsHeaders(req, env) {
   const headers = new Headers();
   headers.set("Vary", "Origin");
   headers.set("Access-Control-Allow-Credentials", "true");
-  headers.set("Access-Control-Expose-Headers", "ETag");
+  headers.set("Access-Control-Expose-Headers", "ETag, X-Cache, X-Cache-Hit, X-RateLimit-Remaining");
   if (origin && isOriginAllowed(origin, allowed)) {
     headers.set("Access-Control-Allow-Origin", origin);
   }
   headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Webhook-Secret");
   return headers;
+}
+
+/** Rate limiting using KV (per-IP throttling) */
+async function checkRateLimit(req, env) {
+  if (!env?.MCCAL_KV) {
+    // No KV = no rate limiting (allow request)
+    return { allowed: true, remaining: -1 };
+  }
+  
+  const ip = req.headers.get("CF-Connecting-IP") || req.headers.get("X-Real-IP") || "unknown";
+  const key = `ratelimit:${ip}`;
+  const maxRequests = parseInt(env?.RATE_LIMIT_REQUESTS || RATE_LIMIT_CONFIG.maxRequests, 10);
+  const windowMs = parseInt(env?.RATE_LIMIT_WINDOW_MS || RATE_LIMIT_CONFIG.windowMs, 10);
+  const windowSec = Math.ceil(windowMs / 1000);
+  
+  try {
+    const current = await env.MCCAL_KV.get(key, { type: "json" }) || { count: 0, start: Date.now() };
+    const now = Date.now();
+    
+    // Reset window if expired
+    if (now - current.start > windowMs) {
+      current.count = 0;
+      current.start = now;
+    }
+    
+    current.count++;
+    const remaining = Math.max(0, maxRequests - current.count);
+    
+    // Update counter with expiration
+    await env.MCCAL_KV.put(key, JSON.stringify(current), { expirationTtl: windowSec });
+    
+    return {
+      allowed: current.count <= maxRequests,
+      remaining,
+      limit: maxRequests,
+      resetAt: new Date(current.start + windowMs).toISOString()
+    };
+  } catch (err) {
+    // On error, allow request (fail open)
+    console.error("Rate limit check failed:", err?.message);
+    return { allowed: true, remaining: -1 };
+  }
+}
+
+/** Validate webhook secret */
+function validateWebhookSecret(req, env) {
+  const secret = env?.WEBHOOK_SECRET;
+  if (!secret) {
+    // No secret configured = reject in production, allow in dev
+    const isProd = env?.ENVIRONMENT === "production" || env?.NODE_ENV === "production";
+    return !isProd;
+  }
+  const provided = req.headers.get("X-Webhook-Secret") || new URL(req.url).searchParams.get("secret");
+  return provided === secret;
 }
 
 /** JSON response helper */
@@ -84,17 +170,43 @@ function getManifestTypes(env) {
   return ["concert", "events", "journalism", "nature", "portrait", "portfolio"];
 }
 
+/** Helper: get cache TTL from env or default */
+function getCacheTtl(env) {
+  const ttl = parseInt(env?.CACHE_TTL_SECONDS, 10);
+  return isNaN(ttl) ? CACHE_CONFIG.manifestTtlSeconds : ttl;
+}
+
+/** Helper: build manifest URL */
+function buildManifestUrl(type, env) {
+  const base = env?.MANIFEST_BASE_URL;
+  if (!base) return null;
+  
+  // Map type to correct filename pattern
+  const typeMap = {
+    concert: "Concert/concert-manifest",
+    events: "Events/events-manifest", 
+    journalism: "Journalism/journalism-manifest",
+    nature: "Nature/nature-manifest",
+    portrait: "Portrait/portrait-manifest",
+    featured: "featured-manifest",
+    portfolio: "portfolio-manifest",
+    universal: "portfolio-manifest"
+  };
+  
+  const path = typeMap[type] || type;
+  return `${base.replace(/\/$/, "")}/${path}.json`;
+}
+
 /** Helper: fetch manifest JSON by type with optional caching */
 async function fetchManifest(type, env) {
-  const base = env?.MANIFEST_BASE_URL;
-  if (!base) {
+  const url = buildManifestUrl(type, env);
+  if (!url) {
     return {
       ok: false,
       status: 500,
       data: { error: "config_error", message: "MANIFEST_BASE_URL is not configured", timestamp: new Date().toISOString() }
     };
   }
-  const url = `${base.replace(/\/$/, "")}/${encodeURIComponent(type)}.json`;
 
   // Edge cache via caches.default
   const cacheKey = new Request(url, { method: "GET" });
@@ -103,11 +215,14 @@ async function fetchManifest(type, env) {
   if (cached) {
     try {
       const data = await cached.json();
+      cacheStats.hits++;
       return { ok: true, status: 200, data, etag: cached.headers.get("ETag") || undefined, fromCache: true };
     } catch {
       // Fall through to network fetch if cache parse fails
     }
   }
+  
+  cacheStats.misses++;
 
   let resp;
   try {
@@ -150,9 +265,16 @@ async function fetchManifest(type, env) {
     };
   }
 
-  // Populate cache (best-effort)
+  // Populate cache with proper TTL headers (best-effort)
+  const ttl = getCacheTtl(env);
   try {
-    await cache.put(cacheKey, forCache);
+    const cacheHeaders = new Headers(forCache.headers);
+    cacheHeaders.set("Cache-Control", `public, max-age=${ttl}, stale-while-revalidate=${CACHE_CONFIG.staleWhileRevalidateSeconds}`);
+    const cacheResponse = new Response(JSON.stringify(data), {
+      status: 200,
+      headers: cacheHeaders
+    });
+    await cache.put(cacheKey, cacheResponse);
   } catch {
     // Ignore cache errors
   }
@@ -172,6 +294,61 @@ async function fetchManifest(type, env) {
   }
 
   return { ok: true, status: 200, data, etag, fromCache: false };
+}
+
+/** Helper: purge manifest from edge cache */
+async function purgeManifestCache(type, env) {
+  const url = buildManifestUrl(type, env);
+  if (!url) return { ok: false, message: "Invalid type or missing config" };
+  
+  const cacheKey = new Request(url, { method: "GET" });
+  const cache = caches.default;
+  
+  try {
+    const deleted = await cache.delete(cacheKey);
+    cacheStats.purges++;
+    return { ok: true, deleted, type, url };
+  } catch (err) {
+    return { ok: false, message: err?.message || "Cache delete failed" };
+  }
+}
+
+/** Helper: warm manifest cache (fetch and store) */
+async function warmManifestCache(type, env) {
+  const result = await fetchManifest(type, env);
+  if (result.ok && !result.fromCache) {
+    cacheStats.warms++;
+  }
+  return {
+    ok: result.ok,
+    type,
+    fromCache: result.fromCache,
+    status: result.status
+  };
+}
+
+/** Helper: purge all manifest caches */
+async function purgeAllManifestCaches(env) {
+  const types = getManifestTypes(env);
+  const results = await Promise.all(types.map(t => purgeManifestCache(t, env)));
+  return {
+    purged: results.filter(r => r.ok && r.deleted).length,
+    total: types.length,
+    results
+  };
+}
+
+/** Helper: warm all manifest caches */
+async function warmAllManifestCaches(env) {
+  const types = getManifestTypes(env);
+  const results = await Promise.all(types.map(t => warmManifestCache(t, env)));
+  return {
+    warmed: results.filter(r => r.ok && !r.fromCache).length,
+    cached: results.filter(r => r.ok && r.fromCache).length,
+    failed: results.filter(r => !r.ok).length,
+    total: types.length,
+    results
+  };
 }
 
 /** Router implementation */
@@ -396,7 +573,17 @@ function buildApiRouter(env) {
 
   // Health check
   router.add("GET", "api/v1/health", async () => {
-    return json({ status: "ok", timestamp: new Date().toISOString() });
+    return json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      cache: {
+        hits: cacheStats.hits,
+        misses: cacheStats.misses,
+        hitRate: cacheStats.hits + cacheStats.misses > 0 
+          ? ((cacheStats.hits / (cacheStats.hits + cacheStats.misses)) * 100).toFixed(1) + "%" 
+          : "N/A"
+      }
+    });
   });
 
   // Manifests list from env or defaults
@@ -406,18 +593,129 @@ function buildApiRouter(env) {
   });
 
   // Manifest by type fetched from website repo
-  router.add("GET", "api/v1/manifests/:type", async (_req, params) => {
+  router.add("GET", "api/v1/manifests/:type", async (req, params) => {
     const { type } = params;
+    
+    // Check If-None-Match for ETag validation
+    const clientETag = req.headers.get("If-None-Match");
+    
     const result = await fetchManifest(type, env);
     if (!result.ok) {
       return json(result.data, { status: result.status });
     }
+    
+    // ETag match = 304 Not Modified
+    if (clientETag && result.etag && clientETag === result.etag) {
+      return new Response(null, { 
+        status: 304,
+        headers: { "ETag": result.etag }
+      });
+    }
+    
+    const ttl = getCacheTtl(env);
     const headers = {
-      // Encourage client caching while allowing quick revalidation
-      "Cache-Control": "public, max-age=300, stale-while-revalidate=3600"
+      // Edge caching: 10 min TTL with 1 hour stale-while-revalidate
+      "Cache-Control": `public, max-age=${ttl}, stale-while-revalidate=${CACHE_CONFIG.staleWhileRevalidateSeconds}`,
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Cache": result.fromCache ? "HIT" : "MISS",
+      "X-Cache-Hit": result.fromCache ? "true" : "false"
     };
     if (result.etag) headers["ETag"] = result.etag;
     return json(result.data, { status: 200, headers });
+  });
+  
+  // Cache stats endpoint
+  router.add("GET", "api/v1/cache/stats", async () => {
+    const uptime = Date.now() - cacheStats.lastReset;
+    return json({
+      hits: cacheStats.hits,
+      misses: cacheStats.misses,
+      purges: cacheStats.purges,
+      warms: cacheStats.warms,
+      hitRate: cacheStats.hits + cacheStats.misses > 0 
+        ? ((cacheStats.hits / (cacheStats.hits + cacheStats.misses)) * 100).toFixed(1) + "%" 
+        : "N/A",
+      uptimeMs: uptime,
+      lastReset: new Date(cacheStats.lastReset).toISOString()
+    });
+  });
+  
+  // Webhook: Purge cache for specific manifest type
+  router.add("POST", "api/v1/webhooks/purge/:type", async (req, params) => {
+    if (!validateWebhookSecret(req, env)) {
+      return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
+    }
+    const { type } = params;
+    const result = await purgeManifestCache(type, env);
+    return json({
+      success: result.ok,
+      action: "purge",
+      type,
+      ...result,
+      timestamp: new Date().toISOString()
+    }, { status: result.ok ? 200 : 500 });
+  });
+  
+  // Webhook: Purge all manifest caches
+  router.add("POST", "api/v1/webhooks/purge", async (req) => {
+    if (!validateWebhookSecret(req, env)) {
+      return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
+    }
+    const result = await purgeAllManifestCaches(env);
+    return json({
+      success: true,
+      action: "purge-all",
+      ...result,
+      timestamp: new Date().toISOString()
+    });
+  });
+  
+  // Webhook: Warm cache for specific manifest type
+  router.add("POST", "api/v1/webhooks/warm/:type", async (req, params) => {
+    if (!validateWebhookSecret(req, env)) {
+      return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
+    }
+    const { type } = params;
+    const result = await warmManifestCache(type, env);
+    return json({
+      success: result.ok,
+      action: "warm",
+      type,
+      ...result,
+      timestamp: new Date().toISOString()
+    }, { status: result.ok ? 200 : 500 });
+  });
+  
+  // Webhook: Warm all manifest caches (pre-warm after publish)
+  router.add("POST", "api/v1/webhooks/warm", async (req) => {
+    if (!validateWebhookSecret(req, env)) {
+      return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
+    }
+    const result = await warmAllManifestCaches(env);
+    return json({
+      success: true,
+      action: "warm-all",
+      ...result,
+      timestamp: new Date().toISOString()
+    });
+  });
+  
+  // Webhook: Combined purge and warm (for CI/CD after manifest publish)
+  router.add("POST", "api/v1/webhooks/refresh", async (req) => {
+    if (!validateWebhookSecret(req, env)) {
+      return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
+    }
+    // First purge all caches
+    const purgeResult = await purgeAllManifestCaches(env);
+    // Then warm all caches
+    const warmResult = await warmAllManifestCaches(env);
+    return json({
+      success: true,
+      action: "refresh",
+      purge: purgeResult,
+      warm: warmResult,
+      timestamp: new Date().toISOString()
+    });
   });
 
   // Blog posts list
@@ -529,6 +827,7 @@ export default {
     } catch {
       reqId = Math.random().toString(36).slice(2);
     }
+    
     // Handle CORS preflight
     if (req.method === "OPTIONS") {
       const headers = corsHeaders(req, env);
@@ -537,6 +836,38 @@ export default {
     }
 
     const headers = corsHeaders(req, env);
+    
+    // Rate limiting for manifest endpoints (skip for webhooks which have their own auth)
+    const url = new URL(req.url);
+    if (url.pathname.startsWith("/api/v1/manifests")) {
+      const rateLimit = await checkRateLimit(req, env);
+      headers.set("X-RateLimit-Limit", String(rateLimit.limit || RATE_LIMIT_CONFIG.maxRequests));
+      headers.set("X-RateLimit-Remaining", String(rateLimit.remaining));
+      if (rateLimit.resetAt) {
+        headers.set("X-RateLimit-Reset", rateLimit.resetAt);
+      }
+      
+      if (!rateLimit.allowed) {
+        headers.set("X-Request-Id", reqId);
+        headers.set("Retry-After", "60");
+        return new Response(
+          JSON.stringify({ 
+            error: "rate_limit_exceeded", 
+            message: "Too many requests. Please try again later.",
+            retryAfter: 60,
+            timestamp: new Date().toISOString()
+          }),
+          { 
+            status: 429, 
+            headers: {
+              ...Object.fromEntries(headers),
+              "Content-Type": "application/json; charset=utf-8"
+            }
+          }
+        );
+      }
+    }
+    
     const router = buildApiRouter(env);
     const match = router.match(req);
 

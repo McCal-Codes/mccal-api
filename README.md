@@ -213,8 +213,113 @@ Returns manifest data for a specific portfolio type.
 
 - `X-Cache: HIT` - Data served from cache
 - `X-Cache: MISS` - Data read from filesystem
+- `X-RateLimit-Limit` - Maximum requests per window
+- `X-RateLimit-Remaining` - Remaining requests in current window
+- `X-RateLimit-Reset` - Timestamp when rate limit resets
+- `ETag` - Entity tag for conditional requests
+- `Cache-Control` - Caching directives (10 min TTL, 1 hour stale-while-revalidate)
 
-#### Clear Manifest Cache
+### Cache Management
+
+#### Get Cache Statistics
+
+```
+GET /api/v1/cache/stats
+```
+
+Returns cache hit/miss statistics.
+
+**Response:**
+
+```json
+{
+  "hits": 1234,
+  "misses": 56,
+  "purges": 3,
+  "warms": 6,
+  "hitRate": "95.7%",
+  "uptimeMs": 3600000,
+  "lastReset": "2025-12-05T10:00:00.000Z"
+}
+```
+
+### Webhooks (Cache Invalidation)
+
+All webhook endpoints require `X-Webhook-Secret` header authentication.
+
+#### Purge Specific Cache
+
+```
+POST /api/v1/webhooks/purge/:type
+```
+
+Purges edge cache for a specific manifest type.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "action": "purge",
+  "type": "concert",
+  "deleted": true,
+  "timestamp": "2025-12-05T18:00:00.000Z"
+}
+```
+
+#### Purge All Caches
+
+```
+POST /api/v1/webhooks/purge
+```
+
+Purges edge cache for all manifest types.
+
+#### Warm Specific Cache
+
+```
+POST /api/v1/webhooks/warm/:type
+```
+
+Pre-warms edge cache for a specific manifest type by fetching fresh data.
+
+#### Warm All Caches
+
+```
+POST /api/v1/webhooks/warm
+```
+
+Pre-warms edge cache for all manifest types.
+
+#### Refresh (Purge + Warm)
+
+```
+POST /api/v1/webhooks/refresh
+```
+
+Combined operation: purges all caches then warms them with fresh data. Used by CI/CD after manifest publishing.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "action": "refresh",
+  "purge": {
+    "purged": 6,
+    "total": 6
+  },
+  "warm": {
+    "warmed": 6,
+    "cached": 0,
+    "failed": 0,
+    "total": 6
+  },
+  "timestamp": "2025-12-05T18:00:00.000Z"
+}
+```
+
+#### Clear Manifest Cache (Legacy)
 
 ```
 POST /api/v1/manifests/cache/clear
@@ -231,14 +336,6 @@ Clears the in-memory manifest cache. Useful during development.
   "timestamp": "2025-11-21T18:00:00.000Z"
 }
 ```
-
-#### Get Cache Statistics
-
-```
-GET /api/v1/manifests/cache/stats
-```
-
-Returns cache statistics and memory usage.
 
 ## Configuration
 
@@ -257,6 +354,11 @@ ALLOWED_ORIGINS=https://mcc-cal.com,https://www.mcc-cal.com,*.squarespace.com
 # Redis (optional, for persistent caching)
 REDIS_URL=redis://localhost:6379
 
+# Cache Configuration
+CACHE_TTL_SECONDS=600          # 10 minute TTL for manifests
+RATE_LIMIT_REQUESTS=100        # Max requests per window
+RATE_LIMIT_WINDOW_MS=60000     # 1 minute window
+
 # Secrets (use wrangler secret put for Cloudflare Worker)
 JWT_SECRET=your-secret-here
 WEBHOOK_SECRET=your-webhook-secret
@@ -268,6 +370,7 @@ For Cloudflare Worker, use `wrangler.toml` vars or `wrangler secret put` for sen
 
 ```bash
 # Set secrets for Cloudflare Worker
+cd src/api
 npx wrangler secret put JWT_SECRET
 npx wrangler secret put WEBHOOK_SECRET
 ```
@@ -285,7 +388,33 @@ To add more origins, modify the `corsOptions` in `server.js`.
 
 ## Caching
 
-The API implements in-memory caching for manifest data:
+### Edge Caching (Cloudflare Worker)
+
+The Worker uses Cloudflare's edge cache with the following policy:
+
+| Resource Type | TTL | Stale-While-Revalidate | Notes |
+|--------------|-----|------------------------|-------|
+| Manifests | 10 min | 1 hour | ETag validation supported |
+| Blog posts | 1 hour | 2 hours | Less volatile content |
+
+**Key features:**
+
+- **ETag revalidation**: Clients can use `If-None-Match` header for conditional requests
+- **Stale-while-revalidate**: Serve stale content while fetching fresh data in background
+- **Cache hit/miss headers**: `X-Cache: HIT` or `X-Cache: MISS`
+
+### Rate Limiting
+
+Manifest endpoints are protected by per-IP rate limiting:
+
+- **Limit**: 100 requests per minute (configurable via `RATE_LIMIT_REQUESTS`)
+- **Window**: 60 seconds (configurable via `RATE_LIMIT_WINDOW_MS`)
+- **Headers**: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+- **Exceeded**: Returns 429 with `Retry-After: 60` header
+
+### In-Memory Caching (Express API)
+
+The Express API implements in-memory caching for manifest data:
 
 - **Default TTL:** 5 minutes
 - **Cache Strategy:** LRU (Least Recently Used)

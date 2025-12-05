@@ -3,6 +3,9 @@
  *
  * Forwards API requests from the dev server to the API server
  * This allows widgets to call /api/* on the same origin during development
+ * 
+ * IMPORTANT: This proxy forces cache: 'no-store' semantics to ensure
+ * Cloudflare edge caching settings only apply in production.
  */
 
 const http = require("http");
@@ -11,17 +14,27 @@ const API_HOST = "localhost";
 const API_PORT = 3001;
 
 function proxyToAPI(req, res) {
+  // Clone headers but ensure no caching for dev
+  const headers = { ...req.headers };
+  headers["cache-control"] = "no-store, no-cache, must-revalidate";
+  headers["pragma"] = "no-cache";
+  
   const options = {
     hostname: API_HOST,
     port: API_PORT,
     path: req.url,
     method: req.method,
-    headers: req.headers,
+    headers: headers,
   };
 
   const proxyReq = http.request(options, (proxyRes) => {
-    // Copy status code
-    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    // Force no-cache headers for development responses
+    const responseHeaders = { ...proxyRes.headers };
+    responseHeaders["cache-control"] = "no-store, no-cache, must-revalidate";
+    responseHeaders["x-dev-proxy"] = "true";
+    
+    // Copy status code with modified headers
+    res.writeHead(proxyRes.statusCode, responseHeaders);
 
     // Pipe response
     proxyRes.pipe(res);

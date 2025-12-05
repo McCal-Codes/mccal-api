@@ -24,6 +24,13 @@ MANIFEST_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/src/images/Por
 MANIFEST_TYPES = "concert,events,journalism,nature,portrait,portfolio"
 BLOG_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/src/images/blog"
 BLOG_AUTHORS = "[{\"id\":\"auth-001\",\"username\":\"mccal\",\"password\":\"Cm03465!\",\"name\":\"McCal\"}]"
+# Cache configuration (in seconds)
+CACHE_TTL_SECONDS = "600"
+# Rate limiting: max requests per window
+RATE_LIMIT_REQUESTS = "100"
+RATE_LIMIT_WINDOW_MS = "60000"
+# WEBHOOK_SECRET should be set as a secret, not in plaintext here
+# Use: wrangler secret put WEBHOOK_SECRET
 
 [[kv_namespaces]]
 binding = "MCCAL_KV"
