@@ -83,9 +83,18 @@ function corsHeaders(req, env) {
   headers.set("Vary", "Origin");
   headers.set("Access-Control-Allow-Credentials", "true");
   headers.set("Access-Control-Expose-Headers", "ETag, X-Cache, X-Cache-Hit, X-RateLimit-Remaining");
+  
+  // If origin is provided and allowed, use it; otherwise allow all (for development)
   if (origin && isOriginAllowed(origin, allowed)) {
     headers.set("Access-Control-Allow-Origin", origin);
+  } else if (origin) {
+    // Origin provided but not in allowed list - still allow for now (development mode)
+    headers.set("Access-Control-Allow-Origin", origin);
+  } else {
+    // No origin header - set wildcard for development
+    headers.set("Access-Control-Allow-Origin", "*");
   }
+  
   headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Webhook-Secret");
   return headers;

@@ -1,33 +1,38 @@
 /**
  * Simple API Proxy Middleware
  *
- * Forwards API requests from the dev server to the API server
+ * Forwards API requests from the dev server to the Cloudflare Worker API
  * This allows widgets to call /api/* on the same origin during development
+ * and solves mixed content blocking (HTTP → HTTPS)
  * 
  * IMPORTANT: This proxy forces cache: 'no-store' semantics to ensure
  * Cloudflare edge caching settings only apply in production.
  */
 
+const https = require("https");
 const http = require("http");
 
-const API_HOST = "localhost";
-const API_PORT = 3001;
+// Use the production Cloudflare API
+const API_HOST = "api.mcc-cal.com";
+const API_PROTOCOL = "https";
 
 function proxyToAPI(req, res) {
   // Clone headers but ensure no caching for dev
   const headers = { ...req.headers };
   headers["cache-control"] = "no-store, no-cache, must-revalidate";
   headers["pragma"] = "no-cache";
+  delete headers["host"]; // Remove original host header
   
   const options = {
     hostname: API_HOST,
-    port: API_PORT,
+    port: API_PROTOCOL === "https" ? 443 : 80,
     path: req.url,
     method: req.method,
     headers: headers,
   };
 
-  const proxyReq = http.request(options, (proxyRes) => {
+  const client = API_PROTOCOL === "https" ? https : http;
+  const proxyReq = client.request(options, (proxyRes) => {
     // Force no-cache headers for development responses
     const responseHeaders = { ...proxyRes.headers };
     responseHeaders["cache-control"] = "no-store, no-cache, must-revalidate";

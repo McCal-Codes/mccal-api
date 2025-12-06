@@ -3,7 +3,6 @@ main = "worker.js"
 compatibility_date = "2025-12-03"
 account_id = "2ac16bbf295c2dacf6e2d7c135c8ebdb"
 workers_dev = true
-subdomain = "mccal"
 routes = [
   { pattern = "api.mcc-cal.com/*", zone_name = "mcc-cal.com" }
 ]
@@ -22,11 +21,11 @@ routes = [
 ]
 
 [vars]
-ALLOWED_ORIGINS = "https://mcc-cal.com,https://*.squarespace.com,https://api.mcc-cal.com"
+ALLOWED_ORIGINS = "http://localhost:3000,http://localhost:8787,https://mcc-cal.com,https://*.squarespace.com,https://api.mcc-cal.com,https://mccal-api.mccal.workers.dev"
 MANIFEST_BASE_URL = "https://raw.githubusercontent.com/McCal-Codes/McCals-Website/main/src/images/Portfolios"
 MANIFEST_TYPES = "concert,events,journalism,nature,portrait,portfolio"
 BLOG_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/src/images/blog"
-BLOG_AUTHORS = "[{\"id\":\"auth-001\",\"username\":\"mccal\",\"password\":\"Cm03465!\",\"name\":\"McCal\"}]"
+# BLOG_AUTHORS is set as a remote secret, not here - keep it secret!
 # Cache configuration (in seconds)
 CACHE_TTL_SECONDS = "600"
 # Rate limiting: max requests per window
@@ -41,4 +40,7 @@ id = "a93e7efa3f88410fa42b90fec951daff"
 # preview_id = "..."  # optional if you also created a preview namespace
 
 [observability]
-logs = "debug"
+enabled = true
+
+[observability.logs]
+enabled = true
