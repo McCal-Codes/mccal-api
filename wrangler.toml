@@ -21,7 +21,7 @@ routes = [
 ]
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:3000,http://localhost:8787,https://mcc-cal.com,https://*.squarespace.com,https://api.mcc-cal.com,https://mccal-api.mccal.workers.dev"
+ALLOWED_ORIGINS = "http://localhost:3000,http://localhost:8787,https://mcc-cal.com,https://*.squarespace.com,https://api.mcc-cal.com,https://mccal-api.mccal.workers.dev,https://dev.mcc-cal.com"
 MANIFEST_BASE_URL = "https://raw.githubusercontent.com/McCal-Codes/McCals-Website/main/src/images/Portfolios"
 MANIFEST_TYPES = "concert,events,journalism,nature,portrait,portfolio"
 BLOG_BASE_URL = "https://McCal-Codes.github.io/McCals-Website/src/images/blog"
