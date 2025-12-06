@@ -529,6 +529,19 @@ async function getSessionFromRequest(req, env) {
 
 /** Build API router */
 function buildApiRouter(env) {
+    // Blog API root health/info endpoint
+    router.add("GET", "api/v1/blog", async () => {
+      return json({
+        status: "ok",
+        message: "Blog API root",
+        time: new Date().toISOString(),
+        endpoints: [
+          "/api/v1/blog/auth/login",
+          "/api/v1/blog/posts",
+          "/api/v1/blog/posts (POST)"
+        ]
+      });
+    });
   const router = new Router();
 
   // Root: provide a minimal index
