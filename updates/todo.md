@@ -67,6 +67,14 @@ Legend: [ ] not started · [x] done · [~] in progress · [b] blocked
 - [ ] Dynamic type discovery via `${MANIFEST_BASE_URL}/index.json`
 - [ ] Rate limiting (optional)
 
+## Operational Fixes (Dec 2025)
+
+- [ ] Remove Cloudflare Tunnel DNS record for `dev.mcc-cal.com`.
+- [ ] Add proxied CNAME for `dev.mcc-cal.com` pointing to the chosen dev origin (e.g., worker `mccal-api.mccal.workers.dev` or other dev host).
+- [ ] Publish worker so updated `ALLOWED_ORIGINS` (including `https://dev.mcc-cal.com` and localhost) are active.
+- [ ] Optional: add temporary `/etc/hosts` entry `127.0.0.1 dev.mcc-cal.com` for local testing, then remove.
+- [ ] Verify after DNS propagation: `curl -I https://dev.mcc-cal.com` returns origin headers (not 1033) and dev front-end requests succeed with CORS.
+
 ## Notes
 
 - Keep secrets/vars in Cloudflare (no source control secrets).
