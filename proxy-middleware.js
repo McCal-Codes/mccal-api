@@ -12,9 +12,14 @@
 const https = require("https");
 const http = require("http");
 
-// Use the production Cloudflare API
-const API_HOST = "api.mcc-cal.com";
-const API_PROTOCOL = "https";
+// Use localhost API server in development, or dev.mcc-cal.com subdomain
+const API_HOST = process.env.API_HOST || "localhost";
+const API_PORT = process.env.API_PORT || 3001;
+const API_PROTOCOL = process.env.API_PROTOCOL || "http";
+
+// If running on dev.mcc-cal.com, use production API
+const isDev = process.env.NODE_ENV === "development";
+const useLocalAPI = isDev && API_HOST === "localhost";
 
 function proxyToAPI(req, res) {
   // Clone headers but ensure no caching for dev
@@ -25,7 +30,7 @@ function proxyToAPI(req, res) {
   
   const options = {
     hostname: API_HOST,
-    port: API_PROTOCOL === "https" ? 443 : 80,
+    port: API_PORT,
     path: req.url,
     method: req.method,
     headers: headers,

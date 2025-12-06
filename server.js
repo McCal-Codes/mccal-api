@@ -36,9 +36,12 @@ const corsOptions = {
       "http://localhost:3001",
       "http://127.0.0.1:3000",
       "http://127.0.0.1:3001",
+      "https://dev.mcc-cal.com", // Development subdomain
+      "http://dev.mcc-cal.com", // Development subdomain (HTTP)
       /\.squarespace\.com$/, // Squarespace preview domains
       /\.sqsp\.com$/, // Squarespace CDN
-      /mccalmedia\.com$/, // Production domain (adjust as needed)
+      /mcc-cal\.com$/, // Production domain
+      /mccalmedia\.com$/, // Legacy domain
     ];
 
     const isAllowed = allowedOrigins.some((pattern) => {
