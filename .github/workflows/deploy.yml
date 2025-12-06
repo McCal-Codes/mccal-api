@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'src/api/**'
+      - '.github/workflows/deploy-cloudflare-worker.yml'
   workflow_dispatch:
 
 jobs:
@@ -19,18 +22,50 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'src/api/package-lock.json'
+
+      - name: Install dependencies
+        run: cd src/api && npm ci
 
       - name: Install Wrangler
-        run: npm i -g wrangler@latest
+        run: npm install -g wrangler@latest
+
+      - name: Validate Cloudflare credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "❌ ERROR: Missing Cloudflare credentials"
+            echo "Set GitHub Secrets:"
+            echo "  - CLOUDFLARE_API_TOKEN"
+            echo "  - CLOUDFLARE_ACCOUNT_ID"
+            exit 1
+          fi
+          echo "✓ Cloudflare credentials validated"
 
       - name: Deploy to Cloudflare Workers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          # Ensure environment vars are present; wrangler uses them when not specified in toml
-          if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ]; then
-            echo "Missing Cloudflare credentials. Set secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." && exit 1
+          cd src/api
+          wrangler deploy --config wrangler.toml
+
+      - name: Test deployed API
+        run: |
+          echo "Waiting for worker to be available..."
+          sleep 5
+          RESPONSE=$(curl -s -w "\n%{http_code}" https://api.mcc-cal.com/api/v1/health)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✓ API health check passed"
+            echo "Response: $BODY"
+          else
+            echo "❌ API health check failed (HTTP $HTTP_CODE)"
+            echo "Response: $BODY"
+            exit 1
           fi
-          # Pass explicit entry and config to avoid auto-detection issues
-          npx wrangler deploy src/worker.js --config wrangler.toml --silent
