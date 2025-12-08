@@ -142,16 +142,60 @@ async function checkRateLimit(req, env) {
   }
 }
 
-/** Validate webhook secret */
-function validateWebhookSecret(req, env) {
+/** Validate webhook request.
+ * Supports HMAC signatures (x-signature: sha256=<hex>) and legacy x-webhook-secret header.
+ * Returns an object: { ok: boolean, bodyText: string }
+ */
+async function validateWebhookRequest(req, env) {
   const secret = env?.WEBHOOK_SECRET;
+  // If no secret is configured, allow in non-production environments
   if (!secret) {
-    // No secret configured = reject in production, allow in dev
     const isProd = env?.ENVIRONMENT === "production" || env?.NODE_ENV === "production";
-    return !isProd;
+    if (!isProd) return { ok: true, bodyText: await req.text() };
+    return { ok: false, bodyText: await req.text() };
   }
+
+  // Read body text (may be empty)
+  let bodyText = "";
+  try {
+    bodyText = await req.text();
+  } catch (_) {
+    bodyText = "";
+  }
+
+  // Check HMAC signature header first (preferred)
+  const sig = req.headers.get("X-Signature") || req.headers.get("x-signature");
+  if (sig && sig.startsWith("sha256=")) {
+    try {
+      // Compute HMAC of bodyText using Web Crypto
+      const key = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["verify"]
+      );
+      const sigBytes = hexToBytes(sig.split("=")[1]);
+      const ok = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(bodyText));
+      return { ok, bodyText };
+    } catch (err) {
+      console.error("Signature validation failed:", err?.message || err);
+      // fall through to legacy header check
+    }
+  }
+
+  // Legacy header support
   const provided = req.headers.get("X-Webhook-Secret") || new URL(req.url).searchParams.get("secret");
-  return provided === secret;
+  return { ok: provided === secret, bodyText };
+}
+
+function hexToBytes(hex) {
+  if (!hex) return new Uint8Array();
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return bytes;
 }
 
 /** JSON response helper */
@@ -316,7 +360,27 @@ async function purgeManifestCache(type, env) {
   try {
     const deleted = await cache.delete(cacheKey);
     cacheStats.purges++;
-    return { ok: true, deleted, type, url };
+    const result = { ok: true, deleted, type, url };
+
+    // If Cloudflare Zone purge credentials are available, attempt to purge by URL
+    if (env?.CLOUDFLARE_API_TOKEN && env?.CLOUDFLARE_ZONE_ID) {
+      try {
+        const purgeResp = await fetch(`https://api.cloudflare.com/client/v4/zones/${env.CLOUDFLARE_ZONE_ID}/purge_cache`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ files: [url] })
+        });
+        const purgeJson = await purgeResp.json().catch(() => ({}));
+        result.cloudflare = { ok: purgeResp.ok, status: purgeResp.status, body: purgeJson };
+      } catch (err) {
+        result.cloudflare = { ok: false, error: err?.message || String(err) };
+      }
+    }
+
+    return result;
   } catch (err) {
     return { ok: false, message: err?.message || "Cache delete failed" };
   }
@@ -665,7 +729,8 @@ function buildApiRouter(env) {
   
   // Webhook: Purge cache for specific manifest type
   router.add("POST", "api/v1/webhooks/purge/:type", async (req, params) => {
-    if (!validateWebhookSecret(req, env)) {
+    const auth = await validateWebhookRequest(req, env);
+    if (!auth.ok) {
       return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
     }
     const { type } = params;
@@ -681,7 +746,8 @@ function buildApiRouter(env) {
   
   // Webhook: Purge all manifest caches
   router.add("POST", "api/v1/webhooks/purge", async (req) => {
-    if (!validateWebhookSecret(req, env)) {
+    const auth = await validateWebhookRequest(req, env);
+    if (!auth.ok) {
       return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
     }
     const result = await purgeAllManifestCaches(env);
@@ -695,7 +761,8 @@ function buildApiRouter(env) {
   
   // Webhook: Warm cache for specific manifest type
   router.add("POST", "api/v1/webhooks/warm/:type", async (req, params) => {
-    if (!validateWebhookSecret(req, env)) {
+    const auth = await validateWebhookRequest(req, env);
+    if (!auth.ok) {
       return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
     }
     const { type } = params;
@@ -711,7 +778,8 @@ function buildApiRouter(env) {
   
   // Webhook: Warm all manifest caches (pre-warm after publish)
   router.add("POST", "api/v1/webhooks/warm", async (req) => {
-    if (!validateWebhookSecret(req, env)) {
+    const auth = await validateWebhookRequest(req, env);
+    if (!auth.ok) {
       return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
     }
     const result = await warmAllManifestCaches(env);
@@ -725,7 +793,8 @@ function buildApiRouter(env) {
   
   // Webhook: Combined purge and warm (for CI/CD after manifest publish)
   router.add("POST", "api/v1/webhooks/refresh", async (req) => {
-    if (!validateWebhookSecret(req, env)) {
+    const auth = await validateWebhookRequest(req, env);
+    if (!auth.ok) {
       return json({ error: "unauthorized", message: "Invalid webhook secret" }, { status: 401 });
     }
     // First purge all caches

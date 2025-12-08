@@ -99,6 +99,18 @@ router.get('/:type', async (req, res, next) => {
     const dataString = JSON.stringify(data);
     const etagValue = etag(dataString);
     
+    // Attempt to include Last-Modified header based on file mtime (if available)
+    try {
+      const manifestRelPath = MANIFEST_CONFIG[type];
+      const fullPath = path.join(process.cwd(), 'src', 'images', 'Portfolios', manifestRelPath);
+      const stats = await fs.stat(fullPath).catch(() => null);
+      if (stats && stats.mtime) {
+        res.set('Last-Modified', stats.mtime.toUTCString());
+      }
+    } catch (err) {
+      // Non-fatal: header is best-effort
+    }
+
     // Check if client has cached version
     const clientETag = req.headers['if-none-match'];
     if (clientETag === etagValue) {
