@@ -114,7 +114,7 @@ Note: This policy reduces manifest churn and avoids accidental per-folder manife
 Reorganization Phase 1 established a standardized approach for handling historical widget versions:
 
 - Live widget directories retain only the current stable + previous stable HTML version files.
-- Older versions are moved (Phase 2 physical relocation) to `src/widgets/_archived/legacy-widget-versions/<widget>/versions/`.
+- Older versions are moved (Phase 2 physical relocation) to `src/widgets/_archived/Legacy Widgets/<widget>/versions/`.
 - Each archive subdirectory will include an `INDEX.json` enumerating `{ version, date, summary }` for traceability and automated audits.
 - Active versions should expose a version badge with `data-active="true"`; archived files omit the attribute (enables future CI validation).
 - Widget README files list only active versions and link to the archive index for history.

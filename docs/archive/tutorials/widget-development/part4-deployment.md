@@ -22,7 +22,7 @@ https://cdn.jsdelivr.net/gh/<owner>/<repo>@testimonials@1.0.0/src/widgets/testim
 ```
 
 ## 3. Archive Workflow (Planned Automation)
-- Move superseded versions to `src/widgets/_archived/legacy-widget-versions/<widget>/versions/`
+- Move superseded versions to `src/widgets/_archived/Legacy Widgets/<widget>/versions/`
 - Update `INDEX.json` with `{ version, date, summary }`
 - CI will validate active vs archived counts (TODO: add enforcement job)
 

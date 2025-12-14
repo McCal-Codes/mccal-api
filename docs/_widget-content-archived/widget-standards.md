@@ -36,7 +36,7 @@ The November 2025 reorganization (Phase 1) introduced forward-looking standards:
 
 ### Legacy Version Archival Policy
 Retain only the current stable and the immediately previous stable version inside each live widget directory. Relocate older versions (Phase 2) to:
-`src/widgets/_archived/legacy-widget-versions/<widget>/versions/` with an `INDEX.json` containing `{ version, date, summary }`. Planned CI will fail if more than two active versions remain.
+`src/widgets/_archived/Legacy Widgets/<widget>/versions/` with an `INDEX.json` containing `{ version, date, summary }`. Planned CI will fail if more than two active versions remain.
 
 ### Aggregated Manifest Consumption
 Portfolio widgets MUST consume the single aggregated manifest per portfolio (e.g. `concert-manifest.json`, `portrait-manifest.json`). Per-folder manifests are deprecated. See `workspace-organization.md` for policy details.

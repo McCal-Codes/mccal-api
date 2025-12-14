@@ -1,6 +1,6 @@
 
 ## 2025-11-19 — Repository Reorganization Phase 1 & Docs polish
-- **Legacy Widget Archival**: Moved older versions for Concert (v2.x–v4.5), Photojournalism (v1.0–v4.8), and Featured Portfolio (v1.0–v1.4) into `src/widgets/_archived/legacy-widget-versions/` with per-widget `INDEX.json` inventories.
+- **Legacy Widget Archival**: Moved older versions for Concert (v2.x–v4.5), Photojournalism (v1.0–v4.8), and Featured Portfolio (v1.0–v1.4) into `src/widgets/_archived/Legacy Widgets/` with per-widget `INDEX.json` inventories.
 - **Active Version Policy**: Updated widget READMEs (concert, photojournalism, featured) to document retained versions and archive location/policy.
 - **STATUS Standardization**: Applied unified STATUS template to Blog Feed, Nature Portfolio, and Admin Importer; refreshed dates and added exit criteria.
 - **Scripts Hygiene**: Added `scripts/utils/orphan-audit.js` to emit JSON report of unreferenced scripts; documented duplicate cleanup policy in `scripts/_archived/README.md`.

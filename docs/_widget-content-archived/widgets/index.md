@@ -20,4 +20,4 @@ This section aggregates usage summaries, active versions, and embedding instruct
 
 - Only active versions (current + previous stable) are listed in each README.
 - All version filenames use the x.x.0 semantic format.
-- Legacy versions live under `src/widgets/_archived/legacy-widget-versions/<widget>/` with `INDEX.json`.
+- Legacy versions live under `src/widgets/_archived/Legacy Widgets/<widget>/` with `INDEX.json`.
