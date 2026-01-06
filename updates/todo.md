@@ -41,7 +41,7 @@ Legend: [ ] not started · [x] done · [~] in progress · [b] blocked
 
 - [ ] Pages + Workers Hybrid
   - [ ] Explore migrating `studio.mcc-cal.com`, `blog.mcc-cal.com`, `archive.mcc-cal.com` to Cloudflare Pages
-  - [ ] Integrate Workers for dynamic API/auth/comments/likes/blog engine/podcast feeds
+  - [ ] Integrate Workers for dynamic API/auth/comments/likes/blog engine/podcast feeds *[OUT OF SCOPE - Assigned to Podcast Agent]*
 
 - [ ] Cloudflare Backend Stack
   - [ ] R2 (image storage)
